@@ -39,7 +39,13 @@ The app must remain model-agnostic. All provider calls go through a single inter
 interface LLMProvider {
   id: string // 'anthropic' | 'openai' | 'openrouter' | ...
   displayName: string
-  generateParagraph(input: GenerateParagraphInput): AsyncIterable<string> // streamed chunks
+  // AsyncGenerator<string, ...> is a strict superset of AsyncIterable<string> — for-await-of
+  // consumers see no difference. The return value carries the AI's invented theme/characters
+  // (UC-3's "separate tag" requirement) for the one consumer (the API route) that drives the
+  // generator manually via .next() instead of for-await-of.
+  generateParagraph(
+    input: GenerateParagraphInput
+  ): AsyncGenerator<string, InventedMetadata | undefined, unknown> // streamed chunks
 }
 ```
 

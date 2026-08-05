@@ -41,7 +41,7 @@
 
 ### UC-4: Continue the story (Writer's turn)
 **Actor:** Writer
-**Precondition:** Story has at least one paragraph (Writer- or AI-authored).
+**Precondition:** Story is empty, or the last paragraph was AI-authored (strict one-turn-each policy — the Writer cannot add two paragraphs in a row).
 **Flow:**
 1. Writer types a new paragraph in the input area.
 2. Writer submits.
@@ -50,7 +50,7 @@
 
 ### UC-5: Continue the story (AI's turn)
 **Actor:** Writer, AI
-**Precondition:** Story has at least one paragraph.
+**Precondition:** Story is empty, or the last paragraph was Writer-authored (strict one-turn-each policy — the AI cannot generate two paragraphs in a row). Enforced server-side by the `/api/generate` route, not just a client-side UI gate.
 **Flow:**
 1. Writer clicks "Continue" (AI-generate next paragraph).
 2. System sends full story-so-far (or a windowed/summarized version, per context-length constraints) to the selected provider.

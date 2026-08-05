@@ -34,7 +34,7 @@ Writers (casual and hobbyist) want a low-friction way to co-write short fiction 
 3. User optionally picks an LLM provider/model (default provided if skipped).
 4. User chooses: "I'll write the first paragraph" or "Get me started."
    - If "Get me started" and no theme/characters/lines were given, AI invents all of them and states its choices before writing.
-5. Story canvas shows the growing story. User can keep adding paragraphs themselves and/or request the AI continue, alternating as desired.
+5. Story canvas shows the growing story. User and AI strictly alternate, one paragraph per turn — after the AI writes, the next paragraph must come from the Writer, and vice versa.
 6. Session ends when the tab closes or user manually resets — nothing is saved (v1).
 
 ## 6. Success criteria (v1)

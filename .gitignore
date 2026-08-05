@@ -3,6 +3,7 @@ node_modules/
 
 # Build output - Next.js
 .next/
+*.tsbuildinfo
 
 # Production build files
 out/

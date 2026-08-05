@@ -1,0 +1,180 @@
+import { CONTEXT_WINDOW_CHAR_BUDGET } from "./constants";
+import type { GenerateParagraphInput, InventedMetadata, StoryParagraph } from "./types";
+
+export function buildSystemPrompt(): string {
+  return [
+    "You are a collaborative fiction co-writer inside Fabula, an app where a human Writer and an AI take turns writing one paragraph each of a short story.",
+    "On your turn:",
+    '- Write exactly ONE paragraph, roughly 80–180 words — enough to move the story forward, not so long it rambles or wanders.',
+    '- Output only the paragraph\'s prose. No preamble, no meta-commentary, no chapter titles, no "AI:"/author labels, no multiple paragraphs.',
+    "- Match the tone, point of view, and narrative voice already established in the story so far — don't impose a different style partway through.",
+    "- Stay strictly consistent with names, settings, and plot details already established. Never contradict, retcon, or restart the story.",
+    "- If a note says earlier paragraphs were omitted for length, treat it as real story history you can't see in full — continue naturally from what's visible, and don't invent specific details that might conflict with what was omitted.",
+    "- If no genre, characters, or opening exists yet, invent one yourself and stay consistent with it for the rest of the story.",
+    "- Default to broadly age-appropriate content suitable for a general audience, including a child co-writing with a parent, unless the story text you've been given clearly signals otherwise. Avoid graphic violence, sexual content, and explicit substance use by default.",
+  ].join("\n");
+}
+
+/**
+ * Rolling context buffer: the client always sends (and displays) the full story;
+ * this only bounds what's sent to the model on each generation call. Keeps the
+ * opening paragraph as an anchor (it carries the theme/characters/premise the rest
+ * of the story depends on) plus as many of the most recent paragraphs as fit the
+ * remaining budget — not naive from-the-end truncation, which would risk losing
+ * the premise on a long story. Truncation only, no summarization (v1 scope).
+ */
+export function windowStoryParagraphs(paragraphs: StoryParagraph[]): StoryParagraph[] {
+  if (paragraphs.length === 0) return paragraphs;
+
+  const totalLength = paragraphs.reduce((sum, p) => sum + p.text.length, 0);
+  if (totalLength <= CONTEXT_WINDOW_CHAR_BUDGET) return paragraphs;
+
+  const [anchor, ...rest] = paragraphs;
+  const budgetForRest = CONTEXT_WINDOW_CHAR_BUDGET - anchor.text.length;
+
+  const kept: StoryParagraph[] = [];
+  let used = 0;
+  for (let i = rest.length - 1; i >= 0; i--) {
+    const candidate = rest[i];
+    if (used + candidate.text.length > budgetForRest) break;
+    kept.unshift(candidate);
+    used += candidate.text.length;
+  }
+
+  const omitted = rest.length - kept.length;
+  const anchorWithNote: StoryParagraph =
+    omitted > 0
+      ? {
+          ...anchor,
+          text: `${anchor.text}\n\n[...earlier paragraphs continue here, omitted for length...]`,
+        }
+      : anchor;
+
+  return [anchorWithNote, ...kept];
+}
+
+export interface ChatMessage {
+  role: "user" | "assistant";
+  content: string;
+}
+
+const CONTINUE_INSTRUCTION =
+  "Continue the story with the next paragraph, picking up naturally from where it left off.";
+
+function buildKickoffInstruction(input: GenerateParagraphInput): string {
+  const hints: string[] = [];
+  if (input.theme) hints.push(`Genre/theme: ${input.theme}`);
+  if (input.characters) hints.push(`Starter characters: ${input.characters}`);
+  if (input.openingLines) hints.push(`Opening lines to build from: ${input.openingLines}`);
+
+  if (hints.length === 0) {
+    return [
+      "Nothing has been set up yet — invent an engaging genre, characters, and opening scene yourself.",
+      "Prefix your response with exactly this format before the paragraph itself:",
+      "THEME: <a short phrase>",
+      "CHARACTERS: <a short phrase>",
+      "---",
+      "<the opening paragraph>",
+    ].join("\n");
+  }
+
+  return [
+    "Write the opening paragraph of the story using the following as a starting point:",
+    ...hints,
+    "Write only the paragraph itself.",
+  ].join("\n");
+}
+
+/**
+ * Maps (already-windowed) storySoFar to alternating chat messages. No same-author
+ * merge logic is needed: the API route enforces a strict one-turn-each policy before
+ * a provider is ever called, so storySoFar can never end in two consecutive
+ * same-author paragraphs by construction — messages always alternate correctly.
+ */
+export function buildMessages(input: GenerateParagraphInput): ChatMessage[] {
+  if (input.storySoFar.length === 0) {
+    return [{ role: "user", content: buildKickoffInstruction(input) }];
+  }
+
+  const messages: ChatMessage[] = input.storySoFar.map((p) => ({
+    role: p.author === "writer" ? "user" : "assistant",
+    content: p.text,
+  }));
+  messages.push({ role: "user", content: CONTINUE_INSTRUCTION });
+  return messages;
+}
+
+const METADATA_DELIMITER = "---";
+
+function parseMetadataHeader(header: string): InventedMetadata {
+  const themeMatch = header.match(/THEME:\s*(.+)/i);
+  const charactersMatch = header.match(/CHARACTERS:\s*(.+)/i);
+  return {
+    theme: themeMatch?.[1]?.trim() || undefined,
+    characters: charactersMatch?.[1]?.trim() || undefined,
+  };
+}
+
+/**
+ * Only active for the true "zero input" kickoff case (UC-3's precondition). Buffers
+ * raw chunks until the model's `---` delimiter, parses the header into InventedMetadata,
+ * yields only the prose after it, and returns the parsed metadata. A pure passthrough
+ * (returns undefined) whenever expectHeader is false.
+ */
+export async function* extractInventedMetadata(
+  rawStream: AsyncIterable<string>,
+  expectHeader: boolean
+): AsyncGenerator<string, InventedMetadata | undefined, unknown> {
+  if (!expectHeader) {
+    for await (const chunk of rawStream) {
+      yield chunk;
+    }
+    return undefined;
+  }
+
+  let buffer = "";
+  let foundDelimiter = false;
+  let metadata: InventedMetadata | undefined;
+
+  for await (const chunk of rawStream) {
+    if (foundDelimiter) {
+      yield chunk;
+      continue;
+    }
+    buffer += chunk;
+    const idx = buffer.indexOf(METADATA_DELIMITER);
+    if (idx !== -1) {
+      foundDelimiter = true;
+      metadata = parseMetadataHeader(buffer.slice(0, idx));
+      const rest = buffer.slice(idx + METADATA_DELIMITER.length).replace(/^\s+/, "");
+      if (rest) yield rest;
+    }
+  }
+
+  // Model ignored the header format (e.g. a refusal or an instruction miss) — fall
+  // back to the buffered text as prose rather than silently dropping it.
+  if (!foundDelimiter && buffer) {
+    yield buffer;
+  }
+
+  return metadata;
+}
+
+/**
+ * Shared wrapper every adapter's generateParagraph delegates to. Handles windowing,
+ * deciding whether to expect the invented-metadata header, and delegating to
+ * extractInventedMetadata — the only provider-specific part is rawTextStream, which
+ * just turns that SDK's native stream into raw text chunks.
+ */
+export function generateWithProvider(
+  input: GenerateParagraphInput,
+  rawTextStream: (input: GenerateParagraphInput) => AsyncIterable<string>
+): AsyncGenerator<string, InventedMetadata | undefined, unknown> {
+  const expectHeader =
+    input.storySoFar.length === 0 && !input.theme && !input.characters && !input.openingLines;
+  const windowed: GenerateParagraphInput = {
+    ...input,
+    storySoFar: windowStoryParagraphs(input.storySoFar),
+  };
+  return extractInventedMetadata(rawTextStream(windowed), expectHeader);
+}
