@@ -22,6 +22,14 @@ Before implementing any feature, read `docs/PRD.md` and `docs/use-cases.md`. If 
 - No database, no auth, no server-persisted user data in v1 (see PRD non-goals). Story state lives in client/session memory only.
 - Do not introduce a new package (state management, UI kit, etc.) without checking if the existing stack already covers it.
 
+## Responsive design (required, not optional)
+
+Both personas (see PRD) plausibly use Fabula on a phone or tablet, not just desktop — a parent and kid co-writing are as likely to be on a shared tablet as a laptop. Every screen must work at mobile, tablet, and desktop widths.
+
+- Use Tailwind responsive utilities (`sm:`/`md:`/`lg:` etc.) — no fixed pixel widths that break below desktop, no horizontal scrolling at any breakpoint.
+- Tap targets (buttons, provider picker, chips) must stay usable at mobile widths, not just shrink.
+- Before considering any UI-touching task done, check the layout at a mobile width (e.g. ~375px) in addition to desktop — don't only eyeball desktop and assume it reflows correctly.
+
 ## LLM provider architecture (core constraint)
 
 The app must remain model-agnostic. All provider calls go through a single interface — do not call a provider SDK directly from route handlers or components.
