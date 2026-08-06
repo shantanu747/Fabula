@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono, Lora } from "next/font/google";
+import { getProviderList } from "@/lib/providers/list";
+import { StoryProvider } from "@/lib/story/StoryContext";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -24,12 +26,15 @@ export const metadata: Metadata = {
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
+  const providers = getProviderList();
   return (
     <html
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} ${storySerif.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col">{children}</body>
+      <body className="min-h-full flex flex-col">
+        <StoryProvider providers={providers}>{children}</StoryProvider>
+      </body>
     </html>
   );
 }

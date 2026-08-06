@@ -1,4 +1,7 @@
+"use client";
+
 import Link from "next/link";
+import { useStory } from "@/lib/story/StoryContext";
 
 const PRESET_THEMES = [
   "Fantasy",
@@ -8,28 +11,37 @@ const PRESET_THEMES = [
   "Slice of life",
 ];
 
-const PROVIDERS = [
-  {
-    id: "anthropic",
-    name: "Claude",
-    vendor: "Anthropic",
-    blurb: "Thoughtful, literary prose.",
-  },
-  {
-    id: "openai",
-    name: "GPT-4o",
-    vendor: "OpenAI",
-    blurb: "Fast and versatile.",
-  },
-  {
-    id: "openweight",
-    name: "Llama 3.1",
-    vendor: "via OpenRouter",
-    blurb: "Open-weight option.",
-  },
-];
+// Decorative-only, keyed by provider id. Not correctness-critical (unlike
+// id/displayName, which come from the registry via useStory().providers) —
+// safe to fall back to an empty string for any id this doesn't recognize.
+const PROVIDER_BLURBS: Record<string, string> = {
+  anthropic: "Thoughtful, literary prose.",
+  openai: "Fast and versatile.",
+  openrouter: "Open-weight option.",
+};
+
+function splitDisplayName(displayName: string): { name: string; vendor: string } {
+  const match = displayName.match(/^(.*?)\s*\(([^)]+)\)\s*$/);
+  return match ? { name: match[1], vendor: match[2] } : { name: displayName, vendor: "" };
+}
 
 export default function Home() {
+  const {
+    theme,
+    characters,
+    openingLines,
+    selectedProviderId,
+    providers,
+    generation,
+    setTheme,
+    setCharacters,
+    setOpeningLines,
+    setSelectedProviderId,
+    generateNext,
+  } = useStory();
+
+  const isStreaming = generation.kind === "streaming";
+
   return (
     <div className="flex flex-1 flex-col items-center bg-background px-4 py-16 sm:py-24">
       <div className="w-full max-w-2xl">
@@ -57,17 +69,22 @@ export default function Home() {
               <input
                 id="theme"
                 type="text"
+                value={theme}
+                onChange={(e) => setTheme(e.target.value)}
+                disabled={isStreaming}
                 placeholder="e.g. A cozy mystery in a small mountain town"
-                className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-accent/40"
+                className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-accent/40 disabled:opacity-40"
               />
               <div className="mt-2 flex flex-wrap gap-2">
-                {PRESET_THEMES.map((theme) => (
+                {PRESET_THEMES.map((preset) => (
                   <button
-                    key={theme}
+                    key={preset}
                     type="button"
-                    className="rounded-full border border-border px-3 py-1 text-xs text-muted transition-colors hover:border-accent hover:text-accent"
+                    disabled={isStreaming}
+                    onClick={() => setTheme(preset)}
+                    className="rounded-full border border-border px-3 py-1 text-xs text-muted transition-colors hover:border-accent hover:text-accent disabled:opacity-40 disabled:hover:border-border disabled:hover:text-muted"
                   >
-                    {theme}
+                    {preset}
                   </button>
                 ))}
               </div>
@@ -83,8 +100,11 @@ export default function Home() {
               <textarea
                 id="characters"
                 rows={2}
+                value={characters}
+                onChange={(e) => setCharacters(e.target.value)}
+                disabled={isStreaming}
                 placeholder="e.g. A retired lighthouse keeper and a dragon who's afraid of water"
-                className="w-full resize-none rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-accent/40"
+                className="w-full resize-none rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-accent/40 disabled:opacity-40"
               />
             </div>
 
@@ -98,8 +118,11 @@ export default function Home() {
               <textarea
                 id="opening"
                 rows={3}
+                value={openingLines}
+                onChange={(e) => setOpeningLines(e.target.value)}
+                disabled={isStreaming}
                 placeholder="Write a line or two to set the tone, or leave this blank"
-                className="w-full resize-none rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-accent/40"
+                className="w-full resize-none rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-accent/40 disabled:opacity-40"
               />
             </div>
           </section>
@@ -109,27 +132,31 @@ export default function Home() {
               Choose who writes with you
             </h2>
             <div className="mt-4 grid gap-3 sm:grid-cols-3">
-              {PROVIDERS.map((provider, i) => (
-                <label
-                  key={provider.id}
-                  className="flex cursor-pointer flex-col gap-1 rounded-xl border border-border bg-background p-3 text-sm has-[:checked]:border-accent has-[:checked]:ring-1 has-[:checked]:ring-accent"
-                >
-                  <span className="flex items-center gap-2">
-                    <input
-                      type="radio"
-                      name="provider"
-                      defaultChecked={i === 0}
-                      className="accent-accent"
-                    />
-                    <span className="font-medium text-foreground">
-                      {provider.name}
+              {providers.map((provider) => {
+                const { name, vendor } = splitDisplayName(provider.displayName);
+                return (
+                  <label
+                    key={provider.id}
+                    className="flex cursor-pointer flex-col gap-1 rounded-xl border border-border bg-background p-3 text-sm has-[:checked]:border-accent has-[:checked]:ring-1 has-[:checked]:ring-accent has-[:disabled]:cursor-not-allowed has-[:disabled]:opacity-40"
+                  >
+                    <span className="flex items-center gap-2">
+                      <input
+                        type="radio"
+                        name="provider"
+                        checked={selectedProviderId === provider.id}
+                        onChange={() => setSelectedProviderId(provider.id)}
+                        disabled={isStreaming}
+                        className="accent-accent"
+                      />
+                      <span className="font-medium text-foreground">{name}</span>
                     </span>
-                  </span>
-                  <span className="text-xs text-muted">
-                    {provider.vendor} · {provider.blurb}
-                  </span>
-                </label>
-              ))}
+                    <span className="text-xs text-muted">
+                      {vendor}
+                      {PROVIDER_BLURBS[provider.id] ? ` · ${PROVIDER_BLURBS[provider.id]}` : ""}
+                    </span>
+                  </label>
+                );
+              })}
             </div>
           </section>
 
@@ -142,7 +169,9 @@ export default function Home() {
             </Link>
             <Link
               href="/story"
-              className="flex-1 rounded-xl bg-accent px-5 py-3 text-center text-sm font-medium text-accent-foreground transition-opacity hover:opacity-90"
+              onClick={() => generateNext()}
+              aria-disabled={isStreaming}
+              className="flex-1 rounded-xl bg-accent px-5 py-3 text-center text-sm font-medium text-accent-foreground transition-opacity hover:opacity-90 aria-disabled:pointer-events-none aria-disabled:opacity-40"
             >
               Get me started →
             </Link>
