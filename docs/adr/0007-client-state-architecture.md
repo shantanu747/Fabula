@@ -1,0 +1,26 @@
+# 7. Client state architecture
+
+## Status
+
+Accepted.
+
+## Context
+
+Fabula has no accounts, no database, and no server-persisted user data in v1 (`docs/PRD.md` non-goals) — story state lives in client/session memory only. But the app's two screens (the start screen at `/` and the story canvas at `/story`) are separate Next.js App Router route segments, and US-8 requires story state to survive "a component re-render or navigating within the app," while explicitly not needing to survive a closed tab. A naive `useState` local to each page's component would be wiped out the moment a Writer navigated from `/` to `/story`, since React unmounts a route segment's own component tree on navigation — that would satisfy "doesn't survive a closed tab" by accident while failing the actual requirement of surviving in-app navigation.
+
+Separately, the start screen and story canvas both need a list of available providers (id + display name) to render their provider picker/selector. That list is defined by `src/lib/providers/registry.ts` — which is server-only, since it transitively imports the Anthropic and OpenAI SDKs and reads secret API keys from `process.env`. It must never be imported into client-bundled code, both for bundle-size reasons and because shipping SDK initialization code (even unused) to the browser is the kind of thing that can leak secrets through misconfiguration later. An earlier milestone's static mockup had independently hardcoded a provider list (ids, labels) in both page files; by the time the real registry existed, that hardcoded copy had already drifted from it (wrong ids, stale model names) — a structural fix was needed, not just a one-time correction.
+
+## Decision
+
+**Cross-route state**: a single React Context (`StoryProvider` in `src/lib/story/StoryContext.tsx`, backed by `useReducer`), mounted once in `src/app/layout.tsx`. This works because of a specific Next.js App Router guarantee: a shared layout is not remounted when navigating between sibling routes that both render under it. `/` and `/story` share the one root layout, so client-side navigation between them never tears down the `StoryProvider` — only the page segment underneath swaps. A hard reload or closed tab remounts the entire React tree, including a fresh `StoryProvider` with empty state, which is exactly the "session ends" behavior the PRD wants. No new package was added — this uses React's built-in Context/`useReducer`, not a state-management library, since the existing stack already covers a single-story-sized amount of state. `sessionStorage`/`localStorage` were deliberately not used either, since either would over-satisfy "session-only" into a form of real persistence (surviving a reload) the PRD explicitly doesn't want.
+
+**Provider list plumbing**: `src/lib/providers/list.ts`, a server-only function (`getProviderList()`) that reads the registry directly, is called exactly once, in `layout.tsx` — a Server Component — and its result is passed as a prop into `StoryProvider`. Because `layout.tsx` never has a `"use client"` directive, this import (and everything it transitively pulls in — the three adapter files and their SDKs) executes only during server-side rendering and is never bundled for the browser. This is the **only** place in the app that imports the registry for UI purposes, which is what actually closes the earlier drift: `page.tsx` and `story/page.tsx` no longer hold their own copies of provider ids/labels at all — both read `providers` off `useStory()`, sourced transitively from the one real registry. A `GET /api/providers` route was considered and rejected: the list is static per deployment (not per-request or per-user), and both consumers already sit under a Server Component that can reach the registry directly — an HTTP round-trip would add latency and a second serialization boundary for no benefit over prop-passing through a layout that's already there.
+
+Everywhere a client file needs a type from a server-only module (`StoryParagraph`, `InventedMetadata` from `src/lib/providers/types.ts`; `ProviderSummary` from `list.ts`), it uses `import type`. The project's `tsconfig.json` has `isolatedModules: true`, and type-only imports are what guarantees these are fully erased at compile time rather than risking a stray runtime import surviving into a client-bundled chain.
+
+## Consequences
+
+- `/` and `/story` remain statically prerenderable (confirmed via `next build`'s route output) despite reading the provider list at request time, since the list has no per-request variance.
+- A build-time check (grepping the compiled `.next/static/chunks` output for SDK class names and secret env var names) confirmed no server-only code or credentials reach the client bundle — worth re-checking after any future change that adds new imports to `layout.tsx`, `StoryContext.tsx`, or either page.
+- If Fabula ever needs a provider list that *does* vary per request (e.g. per-user entitlements in a future version with accounts), this plumbing would need to change — the current design assumes a static, deployment-wide list, which matches v1's no-accounts scope but wouldn't automatically extend to v2.
+- Story state genuinely disappears on a hard reload, by design — there is no code path that could accidentally make it survive one, since nothing writes to any storage API.

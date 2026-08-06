@@ -16,6 +16,8 @@ These rules govern all agent work in this repo. They apply on top of, and never 
 
 Before implementing any feature, read `docs/PRD.md` and `docs/use-cases.md`. If a task isn't covered by either, stop and ask rather than inventing scope.
 
+For *why* the codebase is built the way it is — not just what it should do — read `docs/architecture.md` for the system overview and `docs/adr/` for the reasoning behind specific technical/architecture decisions (provider abstraction, streaming protocol, turn policy, context windowing, content safety defaults, client state). These explain tradeoffs and rejected alternatives that aren't visible from the code alone.
+
 ## Stack constraints
 
 - Next.js **16.3.0**, App Router, TypeScript, Tailwind. Do not add pages router, do not add a separate CSS framework.
@@ -63,3 +65,4 @@ Fabula's audience includes parents co-writing with kids (see PRD personas). AI-g
 - Don't add authentication, sign-in, or persistence scaffolding even if it seems like natural next work — that's explicitly v2, tracked in the PRD non-goals.
 - Keep changes scoped to the requested feature. If implementing one use case surfaces a gap in the spec, flag it back rather than improvising a resolution.
 - Run `next dev` / `next build` and fix resulting errors before considering a task done.
+- When a change makes a non-obvious technical, architecture, or feature decision (not just a straightforward implementation of already-spec'd behavior), add a new numbered ADR under `docs/adr/` — see `docs/adr/README.md` for the format. A code comment explains the *what*; an ADR is what lets a future reader understand the *why* without archaeology through conversation history. This is an ongoing practice, not a one-time backfill.
