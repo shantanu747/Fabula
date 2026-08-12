@@ -27,12 +27,18 @@ function getClient(): OpenAI {
   return client;
 }
 
-async function* rawOpenRouterTextStream(input: GenerateParagraphInput): AsyncGenerator<string> {
+async function* rawOpenRouterTextStream(
+  input: GenerateParagraphInput,
+  trueCount: number
+): AsyncGenerator<string> {
   const stream = await getClient().chat.completions.create({
     model: OPENROUTER_MODEL,
     max_tokens: input.maxOutputTokens,
     stream: true,
-    messages: [{ role: "system", content: buildSystemPrompt() }, ...buildMessages(input)],
+    messages: [
+      { role: "system", content: buildSystemPrompt() },
+      ...buildMessages(input, trueCount),
+    ],
   });
 
   for await (const chunk of stream) {

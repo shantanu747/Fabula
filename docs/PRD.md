@@ -13,14 +13,19 @@ Writers (casual and hobbyist) want a low-friction way to co-write short fiction 
 - Story generation and full session state (all paragraphs, choices, provider used) persist only for the browser session — no accounts, no database in v1.
 - Fast perceived response: AI paragraphs stream in, not a blocking spinner.
 
-## 3. Non-goals (v1 — deferred to v2)
+## 3. Non-goals (v1) and confirmed v2 direction
 
-- User accounts, login (Google/Facebook OAuth, built-in email/password)
-- Persisted story library across sessions/devices
-- Sharing/publishing stories publicly
+**v1 non-goals** — undecided, not yet scoped:
+
 - Collaborative multi-user sessions (two humans + AI)
 - Fine-grained model parameter controls (temperature, max tokens exposed in UI)
 - Monetization/usage limits/billing
+
+**Confirmed v2 direction** — next up, not yet started (no code in v1):
+
+- User accounts/login (Google/Facebook OAuth, built-in email/password)
+- Persisted story library a Writer can return to across sessions/devices
+- Sharing/publishing stories publicly, as part of a social community
 
 ## 4. Primary users
 
@@ -32,9 +37,10 @@ Writers (casual and hobbyist) want a low-friction way to co-write short fiction 
 1. User lands on Fabula.
 2. User optionally selects a genre/theme, adds starter characters, and/or writes opening lines.
 3. User optionally picks an LLM provider/model (default provided if skipped).
-4. User chooses: "I'll write the first paragraph" or "Get me started."
-   - If "Get me started" and no theme/characters/lines were given, AI invents all of them and states its choices before writing.
-5. Story canvas shows the growing story. User and AI strictly alternate, one paragraph per turn — after the AI writes, the next paragraph must come from the Writer, and vice versa.
+4. User optionally sets a target story length, then clicks "Let's write."
+   - If opening lines were given, they become the Writer's first paragraph as-is, and the AI's reply streams immediately after.
+   - If no opening lines were given, the AI writes the first paragraph itself — inventing a theme/characters and stating its choices first if none were given either.
+5. Story canvas shows the growing story. User and AI strictly alternate, one paragraph per turn — after the AI writes, the next paragraph must come from the Writer, and vice versa. Each Writer turn is followed automatically by the AI's reply (one "Continue the Story" click covers both). As the story approaches its target length, the AI increasingly steers its own turns toward a climax and resolution — the target is a soft guide, never a hard stop.
 6. Session ends when the tab closes or user manually resets — nothing is saved (v1).
 
 ## 6. Success criteria (v1)

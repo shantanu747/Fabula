@@ -2,8 +2,8 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { useStory } from "@/lib/story/StoryContext";
-import { isAIsTurn, isWritersTurn } from "@/lib/story/turn";
+import { useStory, MIN_TARGET_LENGTH, MAX_TARGET_LENGTH } from "@/lib/story/StoryContext";
+import { isWritersTurn } from "@/lib/story/turn";
 
 export default function Story() {
   const {
@@ -11,19 +11,21 @@ export default function Story() {
     invented,
     theme,
     characters,
+    targetLength,
     providers,
     selectedProviderId,
     generation,
     setSelectedProviderId,
-    submitWriterParagraph,
+    setTargetLength,
+    submitAndContinue,
     generateNext,
     resetStory,
   } = useStory();
   const [draft, setDraft] = useState("");
 
   const isStreaming = generation.kind === "streaming";
-  const canWrite = isWritersTurn(paragraphs) && draft.trim().length > 0 && !isStreaming;
-  const canContinue = isAIsTurn(paragraphs) && !isStreaming;
+  const canContinue = isWritersTurn(paragraphs) && draft.trim().length > 0 && !isStreaming;
+  const nextParagraphNumber = paragraphs.length + 1;
 
   const headerParts = [theme || invented?.theme, characters || invented?.characters].filter(
     (part): part is string => Boolean(part)
@@ -34,9 +36,9 @@ export default function Story() {
     return providers.find((p) => p.id === id)?.displayName ?? id;
   }
 
-  function handleAddToStory() {
-    if (!canWrite) return;
-    submitWriterParagraph(draft);
+  function handleContinue() {
+    if (!canContinue) return;
+    submitAndContinue(draft);
     setDraft("");
   }
 
@@ -120,28 +122,42 @@ export default function Story() {
         )}
 
         <div className="mt-6 rounded-2xl border border-border bg-card p-5 shadow-sm">
-          <label className="mb-2 block text-sm text-muted" htmlFor="next-paragraph">
-            Write the next paragraph
-          </label>
+          <div className="flex items-baseline justify-between gap-2">
+            <label className="text-sm text-muted" htmlFor="next-paragraph">
+              Write the next paragraph
+            </label>
+            <span className="text-xs text-muted">
+              Paragraph {nextParagraphNumber} of ~{targetLength}
+            </span>
+          </div>
           <textarea
             id="next-paragraph"
             rows={4}
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
             placeholder="Continue the story in your own words..."
-            className="w-full resize-none rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-accent/40"
+            className="mt-2 w-full resize-none rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-accent/40"
           />
-          <div className="mt-3 flex flex-col-reverse items-stretch gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <button
-              type="button"
-              onClick={handleAddToStory}
-              disabled={!canWrite}
-              className="rounded-xl border border-border px-5 py-2.5 text-sm font-medium text-foreground transition-colors hover:border-accent hover:text-accent disabled:opacity-40 disabled:hover:border-border disabled:hover:text-foreground"
-            >
-              Add to story
-            </button>
 
-            <div className="flex items-center gap-2 sm:justify-end">
+          <div className="mt-4 flex items-center gap-3">
+            <label htmlFor="target-length" className="whitespace-nowrap text-xs text-muted">
+              Target length
+            </label>
+            <input
+              id="target-length"
+              type="range"
+              min={MIN_TARGET_LENGTH}
+              max={MAX_TARGET_LENGTH}
+              step={1}
+              value={targetLength}
+              onChange={(e) => setTargetLength(Number(e.target.value))}
+              className="w-full accent-accent"
+            />
+            <span className="whitespace-nowrap text-xs text-muted">~{targetLength}</span>
+          </div>
+
+          <div className="mt-4 flex flex-col-reverse items-stretch gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-center gap-2">
               <label htmlFor="provider-switch" className="text-xs text-muted">
                 AI writes as
               </label>
@@ -158,15 +174,16 @@ export default function Story() {
                   </option>
                 ))}
               </select>
-              <button
-                type="button"
-                onClick={() => generateNext()}
-                disabled={!canContinue}
-                className="rounded-xl bg-accent px-5 py-2.5 text-sm font-medium text-accent-foreground transition-opacity hover:opacity-90 disabled:opacity-40"
-              >
-                {isStreaming ? "Writing…" : "Continue →"}
-              </button>
             </div>
+
+            <button
+              type="button"
+              onClick={handleContinue}
+              disabled={!canContinue}
+              className="rounded-xl bg-accent px-5 py-2.5 text-sm font-medium text-accent-foreground transition-opacity hover:opacity-90 disabled:opacity-40"
+            >
+              {isStreaming ? "Writing…" : "Continue the Story →"}
+            </button>
           </div>
         </div>
       </div>

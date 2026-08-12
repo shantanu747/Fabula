@@ -1,7 +1,7 @@
 "use client";
 
-import Link from "next/link";
-import { useStory } from "@/lib/story/StoryContext";
+import { useRouter } from "next/navigation";
+import { useStory, MIN_TARGET_LENGTH, MAX_TARGET_LENGTH } from "@/lib/story/StoryContext";
 
 const PRESET_THEMES = [
   "Fantasy",
@@ -26,21 +26,35 @@ function splitDisplayName(displayName: string): { name: string; vendor: string }
 }
 
 export default function Home() {
+  const router = useRouter();
   const {
     theme,
     characters,
     openingLines,
     selectedProviderId,
+    targetLength,
     providers,
     generation,
     setTheme,
     setCharacters,
     setOpeningLines,
     setSelectedProviderId,
+    setTargetLength,
     generateNext,
+    submitAndContinue,
   } = useStory();
 
   const isStreaming = generation.kind === "streaming";
+
+  function handleStart() {
+    if (isStreaming) return;
+    if (openingLines.trim()) {
+      submitAndContinue(openingLines);
+    } else {
+      generateNext();
+    }
+    router.push("/story");
+  }
 
   return (
     <div className="flex flex-1 flex-col items-center bg-background px-4 py-16 sm:py-24">
@@ -160,25 +174,44 @@ export default function Home() {
             </div>
           </section>
 
-          <section className="mt-8 flex flex-col gap-3 sm:flex-row">
-            <Link
-              href="/story"
-              className="flex-1 rounded-xl border border-border px-5 py-3 text-center text-sm font-medium text-foreground transition-colors hover:border-accent hover:text-accent"
+          <section className="mt-7 border-t border-border pt-6">
+            <div className="flex items-baseline justify-between gap-2">
+              <label className="text-sm font-semibold text-foreground" htmlFor="target-length">
+                Target story length
+              </label>
+              <span className="text-xs text-muted">~{targetLength} paragraphs</span>
+            </div>
+            <input
+              id="target-length"
+              type="range"
+              min={MIN_TARGET_LENGTH}
+              max={MAX_TARGET_LENGTH}
+              step={1}
+              value={targetLength}
+              onChange={(e) => setTargetLength(Number(e.target.value))}
+              disabled={isStreaming}
+              className="mt-3 w-full accent-accent disabled:opacity-40"
+            />
+            <p className="mt-2 text-xs text-muted">
+              A gentle guide, not a hard stop — the AI leans toward wrapping up near
+              this point, but nothing stops you from writing more.
+            </p>
+          </section>
+
+          <section className="mt-8">
+            <button
+              type="button"
+              onClick={handleStart}
+              disabled={isStreaming}
+              className="w-full rounded-xl bg-accent px-5 py-3 text-center text-sm font-medium text-accent-foreground transition-opacity hover:opacity-90 disabled:pointer-events-none disabled:opacity-40"
             >
-              I&apos;ll write the first paragraph
-            </Link>
-            <Link
-              href="/story"
-              onClick={() => generateNext()}
-              aria-disabled={isStreaming}
-              className="flex-1 rounded-xl bg-accent px-5 py-3 text-center text-sm font-medium text-accent-foreground transition-opacity hover:opacity-90 aria-disabled:pointer-events-none aria-disabled:opacity-40"
-            >
-              Get me started →
-            </Link>
+              Let&apos;s write →
+            </button>
           </section>
 
           <p className="mt-5 text-center text-xs text-muted">
-            No sign-up. Nothing here is saved once you close this tab.
+            No sign-up. Nothing here is saved once you close this tab. Write opening
+            lines above to start the story yourself — otherwise the AI will.
           </p>
         </div>
       </div>

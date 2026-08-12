@@ -11,10 +11,15 @@ export interface StoryParagraph {
 export interface GenerateParagraphInput {
   /** Oldest-first paragraph history. Empty = generating the very first paragraph (UC-2/UC-3). */
   storySoFar: StoryParagraph[];
-  /** Optional scene-setting hints. Only meaningful when storySoFar is empty. */
+  /** Scene-setting hints. Meaningful on the turn-0 kickoff; also kept as standing
+   *  context reminders on later turns (see prompt.ts's buildOngoingContextNote). */
   theme?: string;
   characters?: string;
   openingLines?: string;
+  /** Writer-chosen soft target for total story length (Writer + AI paragraphs
+   *  combined). Never blocks generation — only steers the AI's own turns toward
+   *  a climax/resolution as the story approaches it (see prompt.ts). */
+  targetLength?: number;
   /** Required so no call site can silently skip the per-request cost cap (PRD §7). */
   maxOutputTokens: number;
 }

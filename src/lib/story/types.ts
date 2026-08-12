@@ -18,6 +18,7 @@ export interface StoryState {
   characters: string;
   openingLines: string;
   selectedProviderId: string;
+  targetLength: number;
   paragraphs: StoryParagraph[];
   invented?: InventedMetadata;
   generation: GenerationState;

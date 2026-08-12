@@ -14,7 +14,10 @@ function getClient(): Anthropic {
   return client;
 }
 
-async function* rawAnthropicTextStream(input: GenerateParagraphInput): AsyncGenerator<string> {
+async function* rawAnthropicTextStream(
+  input: GenerateParagraphInput,
+  trueCount: number
+): AsyncGenerator<string> {
   const stream = getClient().messages.stream({
     model: ANTHROPIC_MODEL,
     max_tokens: input.maxOutputTokens,
@@ -23,7 +26,7 @@ async function* rawAnthropicTextStream(input: GenerateParagraphInput): AsyncGene
     // because the budget was spent on reasoning instead.
     thinking: { type: "disabled" },
     system: buildSystemPrompt(),
-    messages: buildMessages(input),
+    messages: buildMessages(input, trueCount),
   });
 
   for await (const event of stream) {

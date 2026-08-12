@@ -10,6 +10,7 @@ export interface GenerateRequestBody {
   theme?: string;
   characters?: string;
   openingLines?: string;
+  targetLength?: number;
 }
 
 export interface GenerationError {

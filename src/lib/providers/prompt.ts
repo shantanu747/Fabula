@@ -61,6 +61,51 @@ export interface ChatMessage {
 const CONTINUE_INSTRUCTION =
   "Continue the story with the next paragraph, picking up naturally from where it left off.";
 
+/**
+ * Theme/characters are always carried by the turn-0 kickoff message (see
+ * buildKickoffInstruction), but were previously dropped from every later turn —
+ * once storySoFar was non-empty, nothing in buildMessages referenced them again.
+ * This reminder plugs that gap for turns after the first.
+ */
+function buildOngoingContextNote(input: GenerateParagraphInput): string | undefined {
+  const parts: string[] = [];
+  if (input.theme) parts.push(`Genre/theme: ${input.theme}.`);
+  if (input.characters) parts.push(`Established characters: ${input.characters}.`);
+  return parts.length > 0 ? `Keep in mind — ${parts.join(" ")}` : undefined;
+}
+
+/**
+ * Soft-target narrative pacing: as the story approaches the Writer-chosen target
+ * length, nudge the AI's own turns toward a climax and then a resolution, instead
+ * of continuing indefinitely with no dramatic shape. Never blocks anything — a
+ * Writer can keep adding paragraphs regardless of what this returns.
+ * `currentCount` must be the true (pre-windowing) total paragraph count so the
+ * bands don't fire late on a long, windowed-down story.
+ */
+function buildLengthSteeringNote(currentCount: number, target?: number): string | undefined {
+  if (!target || target <= 0) return undefined;
+  const nextParagraphNumber = currentCount + 1;
+  const ratio = currentCount / target;
+
+  if (ratio < 0.6) return undefined;
+  if (ratio < 0.85) {
+    return `The story is approaching its target length (paragraph ${nextParagraphNumber} of ~${target}). Start raising the stakes — deepen the central conflict or introduce a complication that pushes things toward a climax soon.`;
+  }
+  if (ratio < 1.0) {
+    return `The story is nearing its target length (paragraph ${nextParagraphNumber} of ~${target}). This is a good point to bring the story to its climax — the central conflict's most intense moment.`;
+  }
+  return `The story has reached or passed its target length (paragraph ${nextParagraphNumber} of ~${target}). Actively work toward resolving the plot now — wrap up loose threads rather than introducing new ones, and bring the story to a natural close within this paragraph or the next.`;
+}
+
+function buildContinuationMessage(input: GenerateParagraphInput, trueCount: number): string {
+  const parts = [CONTINUE_INSTRUCTION];
+  const context = buildOngoingContextNote(input);
+  if (context) parts.push(context);
+  const length = buildLengthSteeringNote(trueCount, input.targetLength);
+  if (length) parts.push(length);
+  return parts.join("\n\n");
+}
+
 function buildKickoffInstruction(input: GenerateParagraphInput): string {
   const hints: string[] = [];
   if (input.theme) hints.push(`Genre/theme: ${input.theme}`);
@@ -90,8 +135,13 @@ function buildKickoffInstruction(input: GenerateParagraphInput): string {
  * merge logic is needed: the API route enforces a strict one-turn-each policy before
  * a provider is ever called, so storySoFar can never end in two consecutive
  * same-author paragraphs by construction — messages always alternate correctly.
+ *
+ * `trueCount` is the real (pre-windowing) paragraph count, used only for length-
+ * steering math — windowing can drop paragraphs from what's sent to the model, but
+ * the story's actual progress toward its target length shouldn't be understated
+ * just because older paragraphs were trimmed for context-budget reasons.
  */
-export function buildMessages(input: GenerateParagraphInput): ChatMessage[] {
+export function buildMessages(input: GenerateParagraphInput, trueCount: number): ChatMessage[] {
   if (input.storySoFar.length === 0) {
     return [{ role: "user", content: buildKickoffInstruction(input) }];
   }
@@ -100,7 +150,7 @@ export function buildMessages(input: GenerateParagraphInput): ChatMessage[] {
     role: p.author === "writer" ? "user" : "assistant",
     content: p.text,
   }));
-  messages.push({ role: "user", content: CONTINUE_INSTRUCTION });
+  messages.push({ role: "user", content: buildContinuationMessage(input, trueCount) });
   return messages;
 }
 
@@ -168,13 +218,14 @@ export async function* extractInventedMetadata(
  */
 export function generateWithProvider(
   input: GenerateParagraphInput,
-  rawTextStream: (input: GenerateParagraphInput) => AsyncIterable<string>
+  rawTextStream: (input: GenerateParagraphInput, trueCount: number) => AsyncIterable<string>
 ): AsyncGenerator<string, InventedMetadata | undefined, unknown> {
   const expectHeader =
     input.storySoFar.length === 0 && !input.theme && !input.characters && !input.openingLines;
+  const trueCount = input.storySoFar.length; // captured before windowing may trim it
   const windowed: GenerateParagraphInput = {
     ...input,
     storySoFar: windowStoryParagraphs(input.storySoFar),
   };
-  return extractInventedMetadata(rawTextStream(windowed), expectHeader);
+  return extractInventedMetadata(rawTextStream(windowed, trueCount), expectHeader);
 }

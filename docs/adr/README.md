@@ -20,3 +20,4 @@ New ADRs are numbered sequentially and are not edited after acceptance — a cha
 5. [Context window management](0005-context-window-management.md) — the anchor-plus-recency rolling window.
 6. [Content safety defaults](0006-content-safety-defaults.md) — age-appropriate output as a prompting default, not a toggle.
 7. [Client state architecture](0007-client-state-architecture.md) — cross-route story state without a database or storage APIs.
+8. [Merged actions and narrative-arc pacing](0008-merged-actions-and-narrative-pacing.md) — one button per screen, the stale-closure fix, and soft-target climax/resolution steering.

@@ -6,11 +6,19 @@ import type { ProviderSummary } from "@/lib/providers/list";
 import type { GenerationErrorKind, StoryState } from "./types";
 import { streamGeneration } from "./streamGeneration";
 
+// Chosen to comfortably cover a co-written short story with a real beginning/
+// middle/end (~7 exchanges each way) without being so long the soft-target
+// climax steering (see prompt.ts) never has a chance to kick in.
+export const DEFAULT_TARGET_LENGTH = 14;
+export const MIN_TARGET_LENGTH = 6;
+export const MAX_TARGET_LENGTH = 30;
+
 type Action =
   | { type: "SET_THEME"; value: string }
   | { type: "SET_CHARACTERS"; value: string }
   | { type: "SET_OPENING_LINES"; value: string }
   | { type: "SET_PROVIDER"; id: string }
+  | { type: "SET_TARGET_LENGTH"; value: number }
   | { type: "GENERATION_START" }
   | { type: "GENERATION_CHUNK"; text: string }
   | { type: "GENERATION_DONE"; paragraph: StoryParagraph; invented?: InventedMetadata }
@@ -24,6 +32,7 @@ function initialState(defaultProviderId: string): StoryState {
     characters: "",
     openingLines: "",
     selectedProviderId: defaultProviderId,
+    targetLength: DEFAULT_TARGET_LENGTH,
     paragraphs: [],
     invented: undefined,
     generation: { kind: "idle" },
@@ -40,6 +49,8 @@ function storyReducer(state: StoryState, action: Action): StoryState {
       return { ...state, openingLines: action.value };
     case "SET_PROVIDER":
       return { ...state, selectedProviderId: action.id };
+    case "SET_TARGET_LENGTH":
+      return { ...state, targetLength: action.value };
     case "GENERATION_START":
       return { ...state, generation: { kind: "streaming", text: "" } };
     case "GENERATION_CHUNK":
@@ -69,8 +80,14 @@ interface StoryContextValue extends StoryState {
   setCharacters: (value: string) => void;
   setOpeningLines: (value: string) => void;
   setSelectedProviderId: (id: string) => void;
+  setTargetLength: (value: number) => void;
   submitWriterParagraph: (text: string) => void;
   generateNext: () => void;
+  /** Submits `text` as the Writer's paragraph, then immediately generates the
+   *  AI's reply — as one action, not two separate clicks. Passes the updated
+   *  paragraph list straight into generation instead of relying on `state`,
+   *  which wouldn't yet reflect the WRITER_SUBMIT dispatch on this same tick. */
+  submitAndContinue: (text: string) => void;
   resetStory: () => void;
 }
 
@@ -89,7 +106,7 @@ export function StoryProvider({
   // Plain functions (not useCallback) so each closes over this render's state —
   // avoids stale-closure bugs from an incomplete dependency array. Acceptable
   // tradeoff at this app's scale (one story, a handful of paragraphs).
-  function runGeneration(retryCount: number) {
+  function runGeneration(retryCount: number, storySoFarOverride?: StoryParagraph[]) {
     if (retryCount === 0 && state.generation.kind === "streaming") return;
 
     abortRef.current?.abort();
@@ -101,10 +118,11 @@ export function StoryProvider({
     void streamGeneration(
       {
         providerId: state.selectedProviderId,
-        storySoFar: state.paragraphs,
+        storySoFar: storySoFarOverride ?? state.paragraphs,
         theme: state.theme || undefined,
         characters: state.characters || undefined,
         openingLines: state.openingLines || undefined,
+        targetLength: state.targetLength,
       },
       controller.signal,
       {
@@ -135,8 +153,16 @@ export function StoryProvider({
     setCharacters: (value) => dispatch({ type: "SET_CHARACTERS", value }),
     setOpeningLines: (value) => dispatch({ type: "SET_OPENING_LINES", value }),
     setSelectedProviderId: (id) => dispatch({ type: "SET_PROVIDER", id }),
+    setTargetLength: (value) => dispatch({ type: "SET_TARGET_LENGTH", value }),
     submitWriterParagraph: (text) => dispatch({ type: "WRITER_SUBMIT", text: text.trim() }),
     generateNext: () => runGeneration(0),
+    submitAndContinue: (text) => {
+      const trimmed = text.trim();
+      if (!trimmed) return;
+      const updated: StoryParagraph[] = [...state.paragraphs, { author: "writer", text: trimmed }];
+      dispatch({ type: "WRITER_SUBMIT", text: trimmed });
+      runGeneration(0, updated);
+    },
     resetStory: () => {
       abortRef.current?.abort();
       abortRef.current = null;
