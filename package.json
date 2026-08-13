@@ -6,23 +6,34 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "test": "vitest run",
+    "db:generate": "node --env-file=.env.local ./node_modules/.bin/drizzle-kit generate",
+    "db:migrate": "node --env-file=.env.local ./node_modules/.bin/drizzle-kit migrate"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.115.0",
+    "@auth/drizzle-adapter": "^1.11.3",
+    "@neondatabase/serverless": "^1.1.0",
+    "bcryptjs": "^3.0.3",
+    "drizzle-orm": "^0.45.2",
     "next": "16.3.0",
+    "next-auth": "^5.0.0-beta.32",
     "openai": "^7.4.0",
     "react": "19.2.8",
     "react-dom": "19.2.8"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
+    "@types/bcryptjs": "^2.4.6",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "drizzle-kit": "^0.31.10",
     "eslint": "^9",
     "eslint-config-next": "16.3.0",
     "tailwindcss": "^4",
-    "typescript": "^5"
+    "typescript": "^5",
+    "vitest": "^4.1.10"
   }
 }
