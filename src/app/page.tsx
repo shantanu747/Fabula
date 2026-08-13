@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useStory, MIN_TARGET_LENGTH, MAX_TARGET_LENGTH } from "@/lib/story/StoryContext";
+import { AppHeader } from "@/components/AppHeader";
 
 const PRESET_THEMES = [
   "Fantasy",
@@ -57,9 +58,11 @@ export default function Home() {
   }
 
   return (
-    <div className="flex flex-1 flex-col items-center bg-background px-4 py-16 sm:py-24">
+    <div className="flex flex-1 flex-col items-center bg-background px-4 py-6 sm:py-10">
       <div className="w-full max-w-2xl">
-        <header className="mb-10 text-center">
+        <AppHeader />
+
+        <header className="mb-10 mt-6 text-center sm:mt-10">
           <h1 className="font-serif text-4xl font-semibold tracking-tight text-foreground">
             Fabula
           </h1>
