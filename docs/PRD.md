@@ -21,11 +21,15 @@ Writers (casual and hobbyist) want a low-friction way to co-write short fiction 
 - Fine-grained model parameter controls (temperature, max tokens exposed in UI)
 - Monetization/usage limits/billing
 
-**Confirmed v2 direction** — next up, not yet started (no code in v1):
+**v2 (this pass) — implemented**: user accounts, a persisted story library, and a shared-story feed. See §8 below for goals/success criteria and `docs/adr/0009-accounts-and-persistence-architecture.md` / `docs/adr/0010-shared-story-feed-and-safety.md` for the architecture.
 
-- User accounts/login (Google/Facebook OAuth, built-in email/password)
-- Persisted story library a Writer can return to across sessions/devices
-- Sharing/publishing stories publicly, as part of a social community
+**Still not in scope (deferred beyond this pass)**:
+
+- Facebook OAuth (only Google was built alongside email/password)
+- Public/unauthenticated sharing (links, embeds) — the feed is logged-in-Writers-only by design, not a partial step toward public sharing
+- Moderation queue/review tooling for reported stories — reports are recorded, not actioned, in this pass
+- Comments, likes, follows, or any other social interaction beyond browsing + reporting
+- Collaborative multi-user sessions (co-authoring someone else's story, forking)
 
 ## 4. Primary users
 
@@ -55,3 +59,19 @@ Writers (casual and hobbyist) want a low-friction way to co-write short fiction 
 - **Model-agnostic adapter complexity**: differing streaming formats, context limits, and prompt conventions across Anthropic/OpenAI/open-weight providers. Mitigate with a single internal `LLMProvider` interface (see AGENTS.md) implemented per provider.
 - **Coherence across providers**: switching models mid-story may produce style/tone shifts. Acceptable for v1; not a blocker.
 - **Cost control**: no accounts/rate-limiting in v1 means no per-user cost caps. Mitigate with a global reasonable per-request token cap and provider-side spend alerts (manual, not built).
+
+## 8. Goals (v2 — this pass)
+
+- A Writer can create an account (email/password or Google) and sign in; guest (logged-out) use of the core write flow from §5 remains fully available and is never gated behind an account.
+- A signed-in Writer's stories are saved automatically as they write — no explicit "save" step — and are listed in a personal library they can return to and resume across sessions/devices.
+- A signed-in Writer can mark a story as shared, making it visible read-only to other signed-in Writers in a browsable feed; unsharing removes it from the feed again.
+- The feed is visible only to signed-in Writers, not the public — see `docs/adr/0010-shared-story-feed-and-safety.md` for why.
+- Shared stories carry a visible disclaimer that content is unmoderated human-written text, and any signed-in Writer can report a shared story with one action (no moderation queue processes reports in this pass — that's a named, deferred gap, not an oversight).
+
+**Success criteria (v2)**:
+
+- Signing up, signing in (both methods), and signing out all work end-to-end against a real deployment.
+- A story started while signed in survives a closed tab and reappears, paragraphs intact, when the Writer returns to their library.
+- A story started as a guest and then signed into mid-story is not lost — the existing paragraphs persist once the Writer has an account attached, without a separate manual "import" step.
+- Toggling sharing on makes a story appear in `/feed` for a different signed-in account; toggling it off removes it. `/library` and `/feed` are unreachable while signed out (redirect to `/login`).
+- Reporting a story succeeds once per Writer per story; a second report from the same Writer is a no-op, not a duplicate or an error.

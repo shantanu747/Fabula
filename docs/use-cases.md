@@ -72,16 +72,64 @@
 **Precondition:** Any state.
 **Flow:**
 1. Writer clicks "New story" / reset.
-2. System clears session story state (no persistence to lose — v1 is session-only).
+2. System clears session story state. If the story had been saved (signed-in Writer), the saved copy in the library is untouched — reset only clears the in-progress client state, it does not delete anything.
 **Postcondition:** Writer back at the start screen (UC-1/2/3 entry point).
 
 ### UC-8: Session ends (tab closed / browser refresh)
 **Actor:** System
 **Precondition:** Story in progress.
 **Flow:**
-1. Writer closes tab or refreshes without an in-app save mechanism (none exists in v1).
-2. Story state is lost — expected v1 behavior.
-**Postcondition:** N/A. (v2: this is where persistence would hook in.)
+1. Writer closes tab or refreshes without navigating away first.
+2. If the Writer was signed in and the story had reached at least one persisted turn, the story is recoverable from `/library` — paragraphs up through the last completed turn are saved (see UC-10).
+3. If the Writer was a guest (not signed in), story state is lost — expected behavior, unchanged from v1.
+**Postcondition:** N/A for guests. For signed-in Writers, the story is resumable per UC-10.
+
+### UC-9: Sign up / sign in
+**Actor:** Writer
+**Precondition:** Any state; signing in is always optional, never required to reach UC-1 through UC-8.
+**Flow:**
+1. Writer clicks "Sign up" or "Sign in" from the header.
+2. Writer either fills in name/email/password (signup) or email/password (login), or clicks "Continue with Google."
+3. System creates or authenticates the account and establishes a session.
+**Postcondition:** Writer is signed in; header now shows their name, a link to their library, and sign out. Nothing about the guest write flow changes for a Writer who chooses not to do this.
+
+### UC-10: Save & resume a story
+**Actor:** Writer (signed in)
+**Precondition:** Writer is signed in and has written or generated at least one turn in a story (including a story started before signing in — see note).
+**Flow:**
+1. On the Writer's first turn while signed in, System creates a saved story record and begins persisting each new paragraph as it's completed (Writer's and AI's), with no explicit "save" action.
+2. Writer navigates away, closes the tab, or later visits `/library`.
+3. Writer clicks a story in their library.
+4. System loads the saved story's full paragraph history, theme/characters, and settings back into the story canvas at the point it left off.
+**Postcondition:** Writer can continue the story exactly as if they'd never left.
+**Note:** A story begun as a guest and continued after signing in mid-story is not lost — the entire pre-signin paragraph history is persisted in one shot on that first signed-in turn, with no separate "adopt this story" step.
+
+### UC-11: Share / unshare a story
+**Actor:** Writer (signed in)
+**Precondition:** Writer has a saved story (per UC-10).
+**Flow:**
+1. From `/library`, Writer toggles "Share" on a story.
+2. System marks the story as shared; it now appears in the shared feed (UC-12) for other signed-in Writers, attributed to this Writer.
+3. Writer can toggle "Share" off at any time, immediately removing it from the feed.
+**Postcondition:** Story's shared state reflects the toggle; reversible at any time.
+
+### UC-12: Browse the shared feed
+**Actor:** Writer (signed in)
+**Precondition:** Writer is signed in. Signed-out visitors are redirected to sign in.
+**Flow:**
+1. Writer navigates to the feed.
+2. System shows a paginated list of shared stories from all Writers, each with a visible disclaimer that shared content is unmoderated human-written text.
+3. Writer opens one to read it read-only, with per-paragraph author attribution (Writer name or AI).
+**Postcondition:** Writer has read a shared story; no interaction beyond reading and reporting (UC-13) exists in this pass.
+
+### UC-13: Report a shared story
+**Actor:** Writer (signed in)
+**Precondition:** Viewing a shared story (UC-12).
+**Flow:**
+1. Writer clicks "Report" on the story.
+2. System records the report, associated with this Writer and this story.
+3. A repeat report from the same Writer on the same story is a no-op, not a duplicate or an error.
+**Postcondition:** Report is recorded. No moderation queue processes it in this pass — this is an explicit, named gap, not an oversight (see `docs/adr/0010-shared-story-feed-and-safety.md`).
 
 ## User Stories
 
