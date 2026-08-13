@@ -11,6 +11,8 @@ export interface GenerateRequestBody {
   characters?: string;
   openingLines?: string;
   targetLength?: number;
+  /** Present only for logged-in Writers who've saved this story — see api/stories. */
+  storyId?: string;
 }
 
 export interface GenerationError {

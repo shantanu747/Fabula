@@ -1,17 +1,16 @@
 "use client";
 
 import { createContext, useContext, useReducer, useRef, type ReactNode } from "react";
+import { useSession } from "next-auth/react";
 import type { InventedMetadata, StoryParagraph } from "@/lib/providers/types";
 import type { ProviderSummary } from "@/lib/providers/list";
 import type { GenerationErrorKind, StoryState } from "./types";
 import { streamGeneration } from "./streamGeneration";
+import { DEFAULT_TARGET_LENGTH } from "./constants";
 
-// Chosen to comfortably cover a co-written short story with a real beginning/
-// middle/end (~7 exchanges each way) without being so long the soft-target
-// climax steering (see prompt.ts) never has a chance to kick in.
-export const DEFAULT_TARGET_LENGTH = 14;
-export const MIN_TARGET_LENGTH = 6;
-export const MAX_TARGET_LENGTH = 30;
+// Re-exported so existing client call sites keep importing these from the context;
+// they live in ./constants so the API routes can enforce the same bounds (see there).
+export { DEFAULT_TARGET_LENGTH, MIN_TARGET_LENGTH, MAX_TARGET_LENGTH } from "./constants";
 
 type Action =
   | { type: "SET_THEME"; value: string }
@@ -24,7 +23,9 @@ type Action =
   | { type: "GENERATION_DONE"; paragraph: StoryParagraph; invented?: InventedMetadata }
   | { type: "GENERATION_ERROR"; message: string; errorKind: GenerationErrorKind }
   | { type: "WRITER_SUBMIT"; text: string }
-  | { type: "RESET"; defaultProviderId: string };
+  | { type: "RESET"; defaultProviderId: string }
+  | { type: "SET_STORY_ID"; id: string }
+  | { type: "HYDRATE_STORY"; state: StoryState };
 
 function initialState(defaultProviderId: string): StoryState {
   return {
@@ -69,6 +70,10 @@ function storyReducer(state: StoryState, action: Action): StoryState {
       return { ...state, paragraphs: [...state.paragraphs, { author: "writer", text: action.text }] };
     case "RESET":
       return initialState(action.defaultProviderId);
+    case "SET_STORY_ID":
+      return { ...state, storyId: action.id };
+    case "HYDRATE_STORY":
+      return action.state;
     default:
       return state;
   }
@@ -89,6 +94,9 @@ interface StoryContextValue extends StoryState {
    *  which wouldn't yet reflect the WRITER_SUBMIT dispatch on this same tick. */
   submitAndContinue: (text: string) => void;
   resetStory: () => void;
+  /** Replaces the entire story with a previously-saved one loaded from
+   *  GET /api/stories/:id (see /library and /story?storyId=…). */
+  hydrateStory: (state: StoryState) => void;
 }
 
 const StoryContext = createContext<StoryContextValue | null>(null);
@@ -102,11 +110,43 @@ export function StoryProvider({
 }) {
   const [state, dispatch] = useReducer(storyReducer, providers[0]?.id ?? "", initialState);
   const abortRef = useRef<AbortController | null>(null);
+  const { data: session } = useSession();
 
   // Plain functions (not useCallback) so each closes over this render's state —
   // avoids stale-closure bugs from an incomplete dependency array. Acceptable
   // tradeoff at this app's scale (one story, a handful of paragraphs).
-  function runGeneration(retryCount: number, storySoFarOverride?: StoryParagraph[]) {
+
+  // Lazily creates the server-side story row on a logged-in Writer's first turn.
+  // Guests, and turns after the first, are no-ops/cache hits — no new persistence
+  // is added to the per-turn request shape (see docs/adr/0009). Because this fires
+  // on the *next* turn regardless of whether the Writer started as a guest, it also
+  // doubles as guest-story adoption: sign in mid-story, keep writing, and the whole
+  // paragraph backlog is persisted via /api/generate's diff-based sync.
+  async function ensureStoryId(): Promise<string | undefined> {
+    if (!session?.user) return undefined;
+    if (state.storyId) return state.storyId;
+    try {
+      const response = await fetch("/api/stories", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          theme: state.theme || undefined,
+          characters: state.characters || undefined,
+          openingLines: state.openingLines || undefined,
+          targetLength: state.targetLength,
+          selectedProviderId: state.selectedProviderId,
+        }),
+      });
+      if (!response.ok) return undefined;
+      const data = (await response.json()) as { id: string };
+      dispatch({ type: "SET_STORY_ID", id: data.id });
+      return data.id;
+    } catch {
+      return undefined; // best-effort — generation still proceeds unsaved
+    }
+  }
+
+  function runGeneration(retryCount: number, storySoFarOverride?: StoryParagraph[], storyId?: string) {
     if (retryCount === 0 && state.generation.kind === "streaming") return;
 
     abortRef.current?.abort();
@@ -123,6 +163,7 @@ export function StoryProvider({
         characters: state.characters || undefined,
         openingLines: state.openingLines || undefined,
         targetLength: state.targetLength,
+        storyId,
       },
       controller.signal,
       {
@@ -137,7 +178,7 @@ export function StoryProvider({
           // Auto-retry once, silently, on a mid-stream drop — only surface the
           // error banner if the retry attempt also fails.
           if (error.kind === "stream-aborted" && retryCount === 0) {
-            runGeneration(1);
+            runGeneration(1, storySoFarOverride, storyId);
             return;
           }
           dispatch({ type: "GENERATION_ERROR", message: error.message, errorKind: error.kind });
@@ -155,18 +196,25 @@ export function StoryProvider({
     setSelectedProviderId: (id) => dispatch({ type: "SET_PROVIDER", id }),
     setTargetLength: (value) => dispatch({ type: "SET_TARGET_LENGTH", value }),
     submitWriterParagraph: (text) => dispatch({ type: "WRITER_SUBMIT", text: text.trim() }),
-    generateNext: () => runGeneration(0),
+    generateNext: () => {
+      void ensureStoryId().then((storyId) => runGeneration(0, undefined, storyId));
+    },
     submitAndContinue: (text) => {
       const trimmed = text.trim();
       if (!trimmed) return;
       const updated: StoryParagraph[] = [...state.paragraphs, { author: "writer", text: trimmed }];
       dispatch({ type: "WRITER_SUBMIT", text: trimmed });
-      runGeneration(0, updated);
+      void ensureStoryId().then((storyId) => runGeneration(0, updated, storyId));
     },
     resetStory: () => {
       abortRef.current?.abort();
       abortRef.current = null;
       dispatch({ type: "RESET", defaultProviderId: providers[0]?.id ?? "" });
+    },
+    hydrateStory: (nextState) => {
+      abortRef.current?.abort();
+      abortRef.current = null;
+      dispatch({ type: "HYDRATE_STORY", state: nextState });
     },
   };
 

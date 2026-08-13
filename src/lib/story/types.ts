@@ -22,6 +22,9 @@ export interface StoryState {
   paragraphs: StoryParagraph[];
   invented?: InventedMetadata;
   generation: GenerationState;
+  /** Set once this story has been saved server-side (logged-in Writers only —
+   *  see docs/adr/0009). Undefined means guest mode or "not saved yet". */
+  storyId?: string;
 }
 
 export type { InventedMetadata, StoryParagraph, ProviderSummary };

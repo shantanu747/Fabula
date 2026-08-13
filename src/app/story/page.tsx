@@ -1,11 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { useStory, MIN_TARGET_LENGTH, MAX_TARGET_LENGTH } from "@/lib/story/StoryContext";
 import { isWritersTurn } from "@/lib/story/turn";
+import { AppHeader } from "@/components/AppHeader";
 
-export default function Story() {
+function StoryPage() {
   const {
     paragraphs,
     invented,
@@ -15,13 +17,45 @@ export default function Story() {
     providers,
     selectedProviderId,
     generation,
+    storyId,
     setSelectedProviderId,
     setTargetLength,
     submitAndContinue,
     generateNext,
     resetStory,
+    hydrateStory,
   } = useStory();
   const [draft, setDraft] = useState("");
+  const searchParams = useSearchParams();
+  const requestedStoryId = searchParams.get("storyId");
+
+  // Resuming a saved story from /library: hydrate the whole client state from the
+  // server once, on mount / when the requested id changes. Guests never hit this —
+  // /library is behind the sign-in gate, so a storyId in the URL implies a session.
+  useEffect(() => {
+    if (!requestedStoryId || requestedStoryId === storyId) return;
+    let cancelled = false;
+    fetch(`/api/stories/${requestedStoryId}`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (cancelled || !data) return;
+        hydrateStory({
+          theme: data.theme,
+          characters: data.characters,
+          openingLines: data.openingLines,
+          selectedProviderId: data.selectedProviderId,
+          targetLength: data.targetLength,
+          paragraphs: data.paragraphs,
+          invented: data.invented,
+          generation: { kind: "idle" },
+          storyId: data.id,
+        });
+      });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [requestedStoryId]);
 
   const isStreaming = generation.kind === "streaming";
   const canContinue = isWritersTurn(paragraphs) && draft.trim().length > 0 && !isStreaming;
@@ -45,16 +79,12 @@ export default function Story() {
   return (
     <div className="flex flex-1 flex-col items-center bg-background px-4 py-10 sm:py-14">
       <div className="w-full max-w-2xl">
-        <header className="mb-6 flex flex-wrap items-center justify-between gap-3">
+        <AppHeader />
+
+        <header className="mb-6 mt-2 flex flex-wrap items-center justify-between gap-3">
           <div>
-            <Link
-              href="/"
-              className="font-serif text-lg font-semibold tracking-tight text-foreground"
-            >
-              Fabula
-            </Link>
             {headerParts.length > 0 && (
-              <p className="mt-1 text-xs text-muted">🏮 {headerParts.join(" · ")}</p>
+              <p className="text-xs text-muted">🏮 {headerParts.join(" · ")}</p>
             )}
           </div>
           <Link
@@ -188,5 +218,13 @@ export default function Story() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function Story() {
+  return (
+    <Suspense>
+      <StoryPage />
+    </Suspense>
   );
 }
