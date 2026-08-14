@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      # next build touches these at module scope (lazy client construction still needs
+      # the key to be a defined string) but never calls out to a real provider/database
+      # during the build itself.
+      ANTHROPIC_API_KEY: test-key
+      OPENAI_API_KEY: test-key
+      OPENROUTER_API_KEY: test-key
+      DATABASE_URL: postgres://user:pass@localhost:5432/fabula
+      AUTH_SECRET: ci-placeholder-secret
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # package-lock.json is authored by npm 11, but Node 22 bundles npm 10, and the two
+      # resolve this dependency set into different trees — npm 10 rejects an npm 11 lockfile
+      # as out-of-sync (EUSAGE). Pin npm explicitly rather than relying on whichever version
+      # a given Node release happens to bundle, so a future node-version bump can't silently
+      # reintroduce the mismatch. See docs/adr/0012-ci-npm-version-pinning.md.
+      - run: npm i -g npm@11
+
+      - run: npm ci
+
+      - run: npm run lint
+
+      - run: npm test
+
+      - run: npm run build

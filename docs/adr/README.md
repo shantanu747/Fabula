@@ -21,3 +21,7 @@ New ADRs are numbered sequentially and are not edited after acceptance — a cha
 6. [Content safety defaults](0006-content-safety-defaults.md) — age-appropriate output as a prompting default, not a toggle.
 7. [Client state architecture](0007-client-state-architecture.md) — cross-route story state without a database or storage APIs.
 8. [Merged actions and narrative-arc pacing](0008-merged-actions-and-narrative-pacing.md) — one button per screen, the stale-closure fix, and soft-target climax/resolution steering.
+9. [Accounts and persistence architecture](0009-accounts-and-persistence-architecture.md) — Neon + Drizzle, Auth.js v5 with JWT sessions, and the write-through-mirror persistence model.
+10. [Shared story feed and safety](0010-shared-story-feed-and-safety.md) — logged-in-only feed, the unmoderated-content risk, disclaimer + report mitigation, and explicit non-goals.
+11. [Security hardening after the v2 review](0011-security-hardening-post-review.md) — origin-resolved redirect validation, uninformative registration responses, and the shared server-side input trust boundary.
+12. [Pinning npm in CI](0012-ci-npm-version-pinning.md) — why the `EBADPLATFORM`/AIX build failure was an npm major-version mismatch, not a platform-specific lockfile.

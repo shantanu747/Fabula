@@ -21,7 +21,7 @@ For *why* the codebase is built the way it is — not just what it should do —
 ## Stack constraints
 
 - Next.js **16.3.0**, App Router, TypeScript, Tailwind. Do not add pages router, do not add a separate CSS framework.
-- No database, no auth, no server-persisted user data in v1 (see PRD non-goals). Story state lives in client/session memory only.
+- v2 (this pass) added a database and auth: Postgres (Neon) via Drizzle, Auth.js v5 for sign-in (email/password + Google). See `docs/adr/0009-accounts-and-persistence-architecture.md`. Guest (logged-out) writing remains fully supported and un-gated — persistence is additive, not a requirement to use the app. Client `StoryContext` state remains the source of truth while a story is being actively written; the database is a write-through mirror for logged-in Writers only (never the other way around).
 - Do not introduce a new package (state management, UI kit, etc.) without checking if the existing stack already covers it.
 
 ## Responsive design (required, not optional)
@@ -62,7 +62,7 @@ Fabula's audience includes parents co-writing with kids (see PRD personas). AI-g
 ## Agent working agreement
 
 - Follow `docs/use-cases.md` for exact flows (including the US-6 resolution: theme/characters/lines are always optional, never gate the human "I'll write" path).
-- Don't add authentication, sign-in, or persistence scaffolding even if it seems like natural next work — that's explicitly v2, tracked in the PRD non-goals.
+- Auth/persistence/sharing exist now (see above) — but don't add further v2+ scope (collaborative multi-user sessions, comments/likes/follows, moderation tooling, fine-grained model params, monetization) even if it seems like natural next work; those remain explicit non-goals in `docs/PRD.md` §3 unless the user asks for them directly.
 - Keep changes scoped to the requested feature. If implementing one use case surfaces a gap in the spec, flag it back rather than improvising a resolution.
 - Run `next dev` / `next build` and fix resulting errors before considering a task done.
 - When a change makes a non-obvious technical, architecture, or feature decision (not just a straightforward implementation of already-spec'd behavior), add a new numbered ADR under `docs/adr/` — see `docs/adr/README.md` for the format. A code comment explains the *what*; an ADR is what lets a future reader understand the *why* without archaeology through conversation history. This is an ongoing practice, not a one-time backfill.

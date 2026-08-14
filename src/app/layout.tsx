@@ -1,7 +1,8 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono, Lora } from "next/font/google";
+import { auth } from "@/auth";
 import { getProviderList } from "@/lib/providers/list";
-import { StoryProvider } from "@/lib/story/StoryContext";
+import { Providers } from "./providers";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -25,15 +26,18 @@ export const metadata: Metadata = {
     "Start a short story with a spark of your own, or none at all, and take turns writing it with an AI.",
 };
 
-export default function RootLayout({ children }: LayoutProps<"/">) {
+export default async function RootLayout({ children }: LayoutProps<"/">) {
   const providers = getProviderList();
+  const session = await auth();
   return (
     <html
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} ${storySerif.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col">
-        <StoryProvider providers={providers}>{children}</StoryProvider>
+        <Providers session={session} providers={providers}>
+          {children}
+        </Providers>
       </body>
     </html>
   );
