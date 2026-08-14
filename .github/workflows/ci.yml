@@ -25,6 +25,13 @@ jobs:
           node-version: 22
           cache: npm
 
+      # package-lock.json is authored by npm 11, but Node 22 bundles npm 10, and the two
+      # resolve this dependency set into different trees — npm 10 rejects an npm 11 lockfile
+      # as out-of-sync (EUSAGE). Pin npm explicitly rather than relying on whichever version
+      # a given Node release happens to bundle, so a future node-version bump can't silently
+      # reintroduce the mismatch. See docs/adr/0012-ci-npm-version-pinning.md.
+      - run: npm i -g npm@11
+
       - run: npm ci
 
       - run: npm run lint
