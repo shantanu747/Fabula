@@ -9,7 +9,7 @@ Format (lightweight [Nygard-style](https://cognitect.com/blog/2011/11/15/documen
 - **Decision** — what was chosen.
 - **Consequences** — what that choice makes easy, hard, or worth revisiting later.
 
-New ADRs are numbered sequentially and are not edited after acceptance — a changed decision gets a new ADR that supersedes the old one, so the record of *why* something changed is preserved rather than overwritten.
+New ADRs are numbered sequentially and are not edited after acceptance — a changed decision gets a new ADR that supersedes the old one, so the record of *why* something changed is preserved rather than overwritten. However, editorial-only improvements to prose, grammar, and readability are permitted without requiring a new ADR.
 
 ## Index
 
