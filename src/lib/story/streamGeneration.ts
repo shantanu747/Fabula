@@ -27,7 +27,7 @@ export interface StreamCallbacks {
 }
 
 /** Longest suffix of `buf` that could still be an incomplete prefix of SENTINEL. */
-function longestSentinelPrefixOverlap(buf: string): number {
+export function longestSentinelPrefixOverlap(buf: string): number {
   const maxCheck = Math.min(SENTINEL.length - 1, buf.length);
   for (let k = maxCheck; k > 0; k--) {
     if (buf.endsWith(SENTINEL.slice(0, k))) return k;
