@@ -4,6 +4,7 @@ import type { ProviderSummary } from "@/lib/providers/list";
 export type GenerationErrorKind =
   | "bad-request" // 400
   | "turn-violation" // 409
+  | "rate-limited" // 429
   | "provider-failed" // 502
   | "stream-aborted" // mid-stream controller.error()
   | "network"; // fetch threw / offline

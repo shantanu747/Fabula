@@ -2,7 +2,11 @@
 
 ## Status
 
-Accepted.
+Accepted. The write mechanism described below under "Atomic multi-row writes" is amended by
+[0016](0016-asserted-paragraph-positions.md): deriving the position from `max(position) + 1`
+inside the insert meant a request that lost a race never collided, so the constraint this
+record relies on was never consulted. The decision recorded here is unchanged; 0016 is what
+makes it hold.
 
 ## Context
 

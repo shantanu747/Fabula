@@ -99,7 +99,10 @@ export default function Home() {
                     type="button"
                     disabled={isStreaming}
                     onClick={() => setTheme(preset)}
-                    className="rounded-full border border-border px-3 py-1 text-xs text-muted transition-colors hover:border-accent hover:text-accent disabled:opacity-40 disabled:hover:border-border disabled:hover:text-muted"
+                    // min-h-11 rather than the .tap-target overlay: these wrap
+                    // onto multiple rows at mobile widths, and invisible 44px
+                    // hit areas would overlap the row below.
+                    className="inline-flex min-h-11 items-center rounded-full border border-border px-4 text-xs text-muted transition-colors hover:border-accent hover:text-accent disabled:opacity-40 disabled:hover:border-border disabled:hover:text-muted"
                   >
                     {preset}
                   </button>
@@ -193,7 +196,7 @@ export default function Home() {
               value={targetLength}
               onChange={(e) => setTargetLength(Number(e.target.value))}
               disabled={isStreaming}
-              className="mt-3 w-full accent-accent disabled:opacity-40"
+              className="mt-3 h-11 w-full accent-accent disabled:opacity-40"
             />
             <p className="mt-2 text-xs text-muted">
               A gentle guide, not a hard stop — the AI leans toward wrapping up near

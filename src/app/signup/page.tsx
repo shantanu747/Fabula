@@ -134,7 +134,7 @@ function SignupForm() {
 
         <p className="mt-5 text-center text-xs text-muted">
           Already have an account?{" "}
-          <Link href="/login" className="font-medium text-accent">
+          <Link href="/login" className="tap-target inline-block font-medium text-accent">
             Sign in
           </Link>
         </p>

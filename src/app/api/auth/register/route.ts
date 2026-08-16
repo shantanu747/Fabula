@@ -1,6 +1,7 @@
 import bcrypt from "bcryptjs";
 import { getDb } from "@/lib/db/client";
 import { users } from "@/lib/db/schema";
+import { guardRegister } from "@/lib/ratelimit/guard";
 
 interface RegisterBody {
   name: string;
@@ -37,6 +38,11 @@ export async function POST(request: Request) {
       { status: 400 }
     );
   }
+
+  // Before bcrypt, which is the expensive part of this handler and therefore the
+  // part worth protecting from being invoked in a loop.
+  const limited = await guardRegister(request);
+  if (limited) return limited;
 
   // Deliberately indistinguishable whether or not the email is already registered:
   // a "that account exists" response would let anyone probe which addresses have a

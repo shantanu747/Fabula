@@ -63,7 +63,13 @@ export async function streamGeneration(
       // body wasn't JSON — keep the generic message
     }
     const kind: GenerationErrorKind =
-      response.status === 409 ? "turn-violation" : response.status === 502 ? "provider-failed" : "bad-request";
+      response.status === 409
+        ? "turn-violation"
+        : response.status === 429
+          ? "rate-limited"
+          : response.status === 502
+            ? "provider-failed"
+            : "bad-request";
     onError({ kind, message });
     return;
   }
