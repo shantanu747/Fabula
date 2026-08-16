@@ -1,4 +1,4 @@
-import { and, asc, eq, sql } from "drizzle-orm";
+import { asc, eq, sql } from "drizzle-orm";
 import { stories, storyParagraphs } from "./schema";
 import type { AppDatabase } from "./types";
 import type { StoryParagraph } from "@/lib/providers/types";
@@ -22,37 +22,43 @@ export function isUniqueViolation(err: unknown): boolean {
   return false;
 }
 
+/**
+ * Appends at the exact positions the caller validated against, starting at
+ * `basePosition`.
+ *
+ * The positions are asserted, never re-derived. An earlier version computed
+ * `coalesce(max("position") + 1, 0)` inside this statement, which reads as the
+ * safer choice and is in fact the bug: a request that lost the race would
+ * recompute a fresh maximum at write time, find no conflict, and quietly append
+ * its stale paragraph *after* the winner's. The story ended up with two Writer
+ * paragraphs in a row and a client whose positions no longer matched the
+ * server's — the exact interleaving the constraint exists to stop, slipping
+ * past it because nothing ever collided.
+ *
+ * Writing the validated positions literally is what turns the unique index into
+ * the serialization point: whoever reads second collides, raises 23505, and is
+ * sent back through the prefix check by the caller.
+ */
 async function appendParagraphsOnce(
   db: AppDatabase,
   storyId: string,
-  paragraphs: readonly StoryParagraph[]
-): Promise<{ firstPosition: number; nextPosition: number }> {
+  paragraphs: readonly StoryParagraph[],
+  basePosition: number
+): Promise<void> {
   // One bound parameter per field — no Postgres array-literal encoding of Writer
   // prose. The ::text casts are on every row because an all-parameter VALUES list
   // otherwise fails with "could not determine data type of parameter".
   const rows = paragraphs.map(
-    (p, i) => sql`(${crypto.randomUUID()}::text, ${p.author}::text, ${p.text}::text, ${
-      p.providerId ?? null
-    }::text, ${i}::int)`
+    (p, i) => sql`(${crypto.randomUUID()}::text, ${storyId}::text, ${p.author}::text, ${
+      p.text
+    }::text, ${p.providerId ?? null}::text, ${basePosition + i}::int)`
   );
 
-  const result = await db.execute<{ position: number }>(sql`
+  await db.execute(sql`
     insert into ${storyParagraphs}
       ("id", "storyId", "authorType", "text", "providerId", "position")
-    select v.id, ${storyId}, v.author_type, v.text, v.provider_id, base.next + v.ord
-      from (values ${sql.join(rows, sql`, `)})
-             as v (id, author_type, text, provider_id, ord)
-      cross join (
-        select coalesce(max("position") + 1, 0) as next
-          from ${storyParagraphs}
-         where "storyId" = ${storyId}
-      ) as base
-    returning "position"
+    values ${sql.join(rows, sql`, `)}
   `);
-
-  const positions = result.rows.map((r) => Number(r.position));
-  const firstPosition = Math.min(...positions);
-  return { firstPosition, nextPosition: firstPosition + positions.length };
 }
 
 export async function insertAIParagraph(
@@ -117,12 +123,29 @@ export async function syncStoryParagraphs(
 
     const toAppend = clientParagraphs.slice(stored.length);
     if (toAppend.length === 0) {
+      // Defense in depth against impossible stored state: if nothing is being
+      // appended then the stored story equals the client's, and the route has
+      // already rejected a client array ending in an AI paragraph. A stored
+      // story that ends with one anyway means the mirror is corrupt, so refuse
+      // rather than stack a second AI turn on top of it.
+      //
+      // This is documentation, not enforcement. It is still a read, so two
+      // concurrent requests can both pass it; only the unique constraint on the
+      // write actually serializes turns (docs/adr/0013).
+      if (stored.length > 0 && stored[stored.length - 1].authorType === "ai") {
+        return { ok: false, reason: "diverged" };
+      }
       return { ok: true, storedBefore: stored.length, appended: 0, nextPosition: stored.length };
     }
 
     try {
-      const { nextPosition } = await appendParagraphsOnce(db, storyId, toAppend);
-      return { ok: true, storedBefore: stored.length, appended: toAppend.length, nextPosition };
+      await appendParagraphsOnce(db, storyId, toAppend, stored.length);
+      return {
+        ok: true,
+        storedBefore: stored.length,
+        appended: toAppend.length,
+        nextPosition: stored.length + toAppend.length,
+      };
     } catch (err) {
       if (!isUniqueViolation(err)) throw err;
       // Someone appended between our read and our insert. No backoff needed:

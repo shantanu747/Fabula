@@ -17,6 +17,24 @@ jobs:
       OPENROUTER_API_KEY: test-key
       DATABASE_URL: postgres://user:pass@localhost:5432/fabula
       AUTH_SECRET: ci-placeholder-secret
+    # The `db` Vitest project (src/test/global-setup-db.ts) needs a real Postgres
+    # to clone its per-worker template from — it fails loudly rather than skipping
+    # silently if it can't reach one. User/password/port match the default
+    # TEST_DB_BASE_URL in src/test/db-names.ts, so no TEST_DATABASE_URL override
+    # is needed here.
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - uses: actions/checkout@v4
 
@@ -36,6 +54,15 @@ jobs:
 
       - run: npm run lint
 
-      - run: npm test
+      # Catches a schema.ts change whose migration was never generated, and a
+      # migration missing from meta/_journal.json. Both have already shipped
+      # here once (docs/adr/0017), and neither is visible to lint, tests, or the
+      # build — the db suite runs migrations, so it catches an unlisted one, but
+      # only drizzle-kit catches an unwritten one.
+      - run: npx drizzle-kit check
+
+      # --coverage, not a bare `npm test`: the thresholds in vitest.config.mts
+      # are the point, and they gate nothing unless coverage actually runs.
+      - run: npm run test:coverage
 
       - run: npm run build

@@ -1,6 +1,15 @@
 import { fileURLToPath } from "node:url";
 import { defineProject } from "vitest/config";
 
+/**
+ * Everything that runs without a database: pure logic, the stream parsers, and
+ * the guest path of the API route (which touches neither auth nor Postgres).
+ *
+ * The `name` is load-bearing. Vitest keys projects by name, and an earlier
+ * revision left both this project and the db project unnamed with identical
+ * `include` globs — the two collapsed into one and the db suite silently never
+ * ran. Naming them, and making the globs disjoint, is what keeps that honest.
+ */
 export default defineProject({
   resolve: {
     alias: {
@@ -8,31 +17,14 @@ export default defineProject({
     },
   },
   test: {
-    include: ["src/**/*.{test,spec}.{ts,tsx}"],
+    name: "unit",
+    environment: "node",
+    include: ["src/**/*.test.{ts,tsx}"],
     exclude: [
-      "node_modules",
-      "dist",
-      ".next",
-      ".nuxt",
-      "build", 
-      "public",
-      "scripts",
-      "src/lib/db/migrations",
-      "src/test",
+      // Owned by the `db` and `perf` projects — both need a live Postgres.
+      "src/**/*.db.test.{ts,tsx}",
+      "src/**/*.perf.test.{ts,tsx}",
+      "src/lib/db/migrations/**",
     ],
-    coverage: {
-      provider: "v8",
-      include: ["src/lib/**", "src/app/api/**"],
-      exclude: [
-        "src/lib/db/migrations/**",
-        "src/lib/story/StoryContext.tsx",
-        "src/lib/providers/{anthropic,openai,openrouter}.ts",
-        "**/*.d.ts",
-      ],
-      thresholds: {
-        "src/lib/**": { statements: 100, branches: 100, functions: 100, lines: 100 },
-        "src/app/api/**": { statements: 90, branches: 90, functions: 90, lines: 90 },
-      },
-    },
   },
 });

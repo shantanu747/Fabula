@@ -10,7 +10,7 @@ export function AppHeader() {
     <div className="flex w-full items-center justify-between gap-3 py-3 text-sm">
       <Link
         href="/"
-        className="font-serif text-base font-semibold tracking-tight text-foreground"
+        className="tap-target font-serif text-base font-semibold tracking-tight text-foreground"
       >
         Fabula
       </Link>
@@ -20,13 +20,13 @@ export function AppHeader() {
           <>
             <Link
               href="/library"
-              className="text-xs font-medium text-muted transition-colors hover:text-accent"
+              className="tap-target text-xs font-medium text-muted transition-colors hover:text-accent"
             >
               My library
             </Link>
             <Link
               href="/feed"
-              className="text-xs font-medium text-muted transition-colors hover:text-accent"
+              className="tap-target text-xs font-medium text-muted transition-colors hover:text-accent"
             >
               Feed
             </Link>
@@ -36,7 +36,7 @@ export function AppHeader() {
             <button
               type="button"
               onClick={() => signOut({ callbackUrl: "/" })}
-              className="rounded-full border border-border px-3 py-1.5 text-xs font-medium text-muted transition-colors hover:border-accent hover:text-accent"
+              className="tap-target rounded-full border border-border px-3 py-1.5 text-xs font-medium text-muted transition-colors hover:border-accent hover:text-accent"
             >
               Sign out
             </button>
@@ -47,13 +47,13 @@ export function AppHeader() {
           <>
             <Link
               href="/login"
-              className="text-xs font-medium text-muted transition-colors hover:text-accent"
+              className="tap-target text-xs font-medium text-muted transition-colors hover:text-accent"
             >
               Sign in
             </Link>
             <Link
               href="/signup"
-              className="rounded-full border border-border px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:border-accent hover:text-accent"
+              className="tap-target rounded-full border border-border px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:border-accent hover:text-accent"
             >
               Sign up
             </Link>

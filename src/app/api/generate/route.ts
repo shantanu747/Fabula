@@ -1,10 +1,9 @@
 import { eq } from "drizzle-orm";
 import { auth } from "@/auth";
 import { getDb } from "@/lib/db/client";
-import { stories, storyParagraphs } from "@/lib/db/schema";
-import { syncStoryParagraphs } from "@/lib/db/paragraphs";
-import { insertAIParagraph } from "@/lib/db/paragraphs";
-import { isUniqueViolation } from "@/lib/db/paragraphs";
+import { stories } from "@/lib/db/schema";
+import { insertAIParagraph, syncStoryParagraphs } from "@/lib/db/paragraphs";
+import { guardGenerate } from "@/lib/ratelimit/guard";
 import { MAX_OUTPUT_TOKENS } from "@/lib/providers/constants";
 import { getProvider } from "@/lib/providers/registry";
 import type { InventedMetadata, StoryParagraph } from "@/lib/providers/types";
@@ -76,13 +75,24 @@ export async function POST(request: Request) {
     );
   }
 
+  // Resolved once, for every request rather than only the persisted ones, because
+  // it decides which rate-limit bucket applies. With JWT sessions this verifies a
+  // cookie signature and makes no database call (docs/adr/0009), so it is cheap
+  // enough to do unconditionally.
+  const session = await auth();
+
+  // Last gate before anything costs money. Deliberately after validation and the
+  // turn check — a malformed or out-of-turn request never reaches a provider, so
+  // spending a token on it would only punish a buggy client.
+  const limited = await guardGenerate(request, session?.user?.id);
+  if (limited) return limited;
+
   // Write-through persistence: only for logged-in Writers who've already saved this
   // story (POST /api/stories). Diff-based against what's already stored, rather than
   // trusting the client to say which paragraphs are "new" (see ADR 0009).
   let persistedStoryId: string | undefined;
   let aiPosition: number;
   if (input.storyId) {
-    const session = await auth();
     if (!session?.user?.id) {
       return Response.json({ error: "Not authenticated" }, { status: 401 });
     }
@@ -132,18 +142,30 @@ export async function POST(request: Request) {
 
   async function persistAIParagraph(metadata: InventedMetadata | undefined) {
     if (!persistedStoryId) return;
-    const db = getDb();
-    const wrote = await insertAIParagraph(db, {
-      storyId: persistedStoryId, 
-      text: aiText, 
-      providerId: input.providerId,
-      position: aiPosition, 
-      invented: metadata,
-    });
-    if (!wrote) {
-      console.warn(
-        `[generate] story ${persistedStoryId} position ${aiPosition} was taken by a ` +
-          `concurrent turn; this generation was superseded and not persisted.`
+    try {
+      const db = getDb();
+      const wrote = await insertAIParagraph(db, {
+        storyId: persistedStoryId,
+        text: aiText,
+        providerId: input.providerId,
+        position: aiPosition,
+        invented: metadata,
+      });
+      if (!wrote) {
+        console.warn(
+          `[generate] story ${persistedStoryId} position ${aiPosition} was taken by a ` +
+            `concurrent turn; this generation was superseded and not persisted.`
+        );
+      }
+    } catch (err) {
+      // Deliberately swallowed, and scoped to persistence alone. The prose has
+      // already streamed to the Writer; turning a mirror-write failure into a
+      // stream error would make the client auto-retry and pay for a second
+      // generation of a paragraph that already succeeded. Losing the mirror is
+      // the smaller loss. Provider failures are NOT swallowed — see pull().
+      console.error(
+        `[generate] failed to persist AI paragraph for ${persistedStoryId}:`,
+        err
       );
     }
   }
@@ -176,11 +198,11 @@ export async function POST(request: Request) {
         }
       } catch (err) {
         console.error(`[generate] ${provider.id} stream error:`, err);
-        // Deliberately swallowed. The prose already streamed to the Writer; turning a
-        // persistence failure into a stream error makes the client auto-retry and pay
-        // for a second generation of a paragraph that already succeeded. Losing the
-        // mirror is the smaller loss.
-        console.error(`[generate] failed to persist AI paragraph for ${persistedStoryId ?? "(guest)"}:`, err);
+        // A provider failure mid-stream has to reach the client. The client maps
+        // a broken stream to "stream-aborted" and runs its single auto-retry;
+        // closing the stream normally instead would hand the Writer a truncated
+        // paragraph presented as a finished one, with nothing to retry from.
+        controller.error(err);
       }
     },
     async cancel(reason) {

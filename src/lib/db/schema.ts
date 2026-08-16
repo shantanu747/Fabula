@@ -1,5 +1,7 @@
+import { sql } from "drizzle-orm";
 import {
   boolean,
+  doublePrecision,
   index,
   integer,
   jsonb,
@@ -91,8 +93,19 @@ export const stories = pgTable("story", {
   createdAt: timestamp("createdAt", { mode: "date" }).notNull().defaultNow(),
   updatedAt: timestamp("updatedAt", { mode: "date" }).notNull().defaultNow(),
 }, (t) => [
-  index().on(t.ownerId, t.updatedAt.desc()),
-  index("stories_updated_at_is_shared_idx").on(t.updatedAt).where(t.isShared)
+  // Written as raw SQL rather than t.updatedAt.desc(), which emits
+  // "DESC NULLS LAST". A plain ORDER BY ... DESC means NULLS FIRST, so the two
+  // orderings do not match and Postgres cannot take the sort from the index: the
+  // library query bitmap-scans every one of a Writer's stories and sorts them,
+  // instead of reading twenty rows off the index and stopping. The column is NOT
+  // NULL, so this changes nothing semantically — only whether the index is
+  // usable for ordering. Verified in src/lib/db/queries.perf.test.ts.
+  index("story_ownerId_updatedAt_index").on(t.ownerId, sql`"updatedAt" DESC`),
+  // The predicate must be `sql`, not the bare column — drizzle-kit calls .toQuery()
+  // on whatever it's given while serializing the snapshot, so passing t.isShared
+  // makes `drizzle-kit generate` throw before writing anything. Written unqualified
+  // because Postgres rejects table-qualified names in an index predicate.
+  index("stories_updated_at_is_shared_idx").on(t.updatedAt).where(sql`"isShared" = true`)
 ]);
 
 export const storyParagraphs = pgTable("story_paragraph", {
@@ -128,3 +141,23 @@ export const storyReports = pgTable(
     index().on(t.reporterId)
   ]
 );
+
+/**
+ * Token buckets for rate limiting (docs/adr/0015).
+ *
+ * The state lives in Postgres rather than in module scope because the app runs
+ * on serverless functions: every invocation may be a fresh isolate, so an
+ * in-memory counter limits one instance rather than one caller, and resets
+ * whenever the platform recycles it. There is no separate Redis here — the
+ * database is already a dependency of every request this protects.
+ *
+ * Keyed by a caller identity string (see src/lib/ratelimit/policy.ts), which is
+ * the primary key, so a bucket read is a single index lookup and needs no
+ * further index.
+ */
+export const rateLimitBuckets = pgTable("rate_limit_bucket", {
+  key: text("key").primaryKey(),
+  /** Fractional, because refill is continuous rather than per-tick. */
+  tokens: doublePrecision("tokens").notNull(),
+  updatedAt: timestamp("updatedAt", { mode: "date" }).notNull().defaultNow(),
+});

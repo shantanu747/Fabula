@@ -105,7 +105,7 @@ function LoginForm() {
 
         <p className="mt-5 text-center text-xs text-muted">
           New here?{" "}
-          <Link href="/signup" className="font-medium text-accent">
+          <Link href="/signup" className="tap-target inline-block font-medium text-accent">
             Create an account
           </Link>
         </p>

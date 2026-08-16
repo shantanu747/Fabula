@@ -1,4 +1,4 @@
-import { neon } from "@neondatabase/serverless";
+import { neon, neonConfig } from "@neondatabase/serverless";
 import { drizzle } from "drizzle-orm/neon-http";
 import * as schema from "./schema";
 import type { AppDatabase } from "./types";
@@ -10,12 +10,34 @@ import type { AppDatabase } from "./types";
 let db: AppDatabase | undefined;
 
 function createDb() {
+  // Local-development escape hatch. The Neon driver speaks Neon's HTTP protocol,
+  // not the Postgres wire protocol, so it cannot talk to a plain Postgres at all
+  // — pointing DATABASE_URL at localhost fails with "fetch failed". Setting this
+  // to a local Neon HTTP proxy lets a developer run the *production* driver
+  // against a local database, which is the only way to catch behaviour that
+  // differs between neon-http and the node-postgres driver the test suite uses
+  // (see docs/adr/0014). Unset in production, where the endpoint is Neon's own.
+  if (process.env.NEON_FETCH_ENDPOINT) {
+    neonConfig.fetchEndpoint = process.env.NEON_FETCH_ENDPOINT;
+  }
   return drizzle({ client: neon(process.env.DATABASE_URL!), schema });
 }
 
 export function getDb(): AppDatabase {
   if (!db) db = createDb();
   return db;
+}
+
+/**
+ * Whether a database is available at all.
+ *
+ * Guest writing has never required one (docs/adr/0009), and rate limiting must
+ * not quietly turn Postgres into a hard dependency of running the app at all —
+ * a contributor cloning the repo to try the guest flow has no DATABASE_URL. This
+ * reports the injected handle too, so the test suite counts as configured.
+ */
+export function hasDatabase(): boolean {
+  return db !== undefined || Boolean(process.env.DATABASE_URL);
 }
 
 /**

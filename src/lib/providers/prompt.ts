@@ -157,8 +157,12 @@ export function buildMessages(input: GenerateParagraphInput, trueCount: number):
 const METADATA_DELIMITER = "---";
 
 function parseMetadataHeader(header: string): InventedMetadata {
-  const themeMatch = header.match(/THEME:\s*(.+)/i);
-  const charactersMatch = header.match(/CHARACTERS:\s*(.+)/i);
+  // `[ \t]*`, not `\s*`: \s matches newlines, so a model that emits a bare
+  // "THEME:" with nothing after it would greedily swallow the following
+  // "CHARACTERS:" line and report it as the theme. Each field is confined to
+  // its own line, and a field left blank simply comes back undefined.
+  const themeMatch = header.match(/THEME:[ \t]*(.+)/i);
+  const charactersMatch = header.match(/CHARACTERS:[ \t]*(.+)/i);
   return {
     theme: themeMatch?.[1]?.trim() || undefined,
     characters: charactersMatch?.[1]?.trim() || undefined,
@@ -184,11 +188,25 @@ export async function* extractInventedMetadata(
 
   let buffer = "";
   let foundDelimiter = false;
+  // The newline the model writes after `---` must be swallowed, but it does not
+  // necessarily arrive in the same chunk as the delimiter. Stripping only the
+  // first post-delimiter chunk leaks that newline into the paragraph whenever a
+  // chunk boundary happens to fall right after `---`, so the strip stays armed
+  // until actual prose shows up.
+  let leadingStripped = false;
   let metadata: InventedMetadata | undefined;
+
+  function emit(text: string): string {
+    if (leadingStripped) return text;
+    const stripped = text.replace(/^\s+/, "");
+    if (stripped) leadingStripped = true;
+    return stripped;
+  }
 
   for await (const chunk of rawStream) {
     if (foundDelimiter) {
-      yield chunk;
+      const out = emit(chunk);
+      if (out) yield out;
       continue;
     }
     buffer += chunk;
@@ -196,7 +214,7 @@ export async function* extractInventedMetadata(
     if (idx !== -1) {
       foundDelimiter = true;
       metadata = parseMetadataHeader(buffer.slice(0, idx));
-      const rest = buffer.slice(idx + METADATA_DELIMITER.length).replace(/^\s+/, "");
+      const rest = emit(buffer.slice(idx + METADATA_DELIMITER.length));
       if (rest) yield rest;
     }
   }

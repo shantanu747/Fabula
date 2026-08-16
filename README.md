@@ -61,10 +61,51 @@ Open [http://localhost:3000](http://localhost:3000).
 ### Other scripts
 
 ```bash
-npm run lint     # ESLint
-npm run build    # production build
-npm test         # unit tests (vitest)
+npm run lint            # ESLint
+npm run build           # production build
+npm test                # unit + db suites
+npm run test:unit       # no database needed
+npm run test:db         # needs Postgres (see below)
+npm run test:coverage   # enforces the tiered thresholds in vitest.config.mts
+npm run test:perf       # EXPLAIN suite; seeds ~100k rows, run after index changes
+npm run test:responsive # screenshots every page at 375/768/1440 and flags overflow
 ```
+
+### Running the tests that need a database
+
+The `db` and `perf` suites run against a real Postgres, because what they test is
+what Postgres does — the unique constraint that serialises concurrent turns, and
+the plans the query planner actually picks. Start one:
+
+```bash
+docker run -d --name fabula-test-pg \
+  -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=postgres \
+  -p 5432:5432 postgres:17-alpine
+```
+
+That matches the default; set `TEST_DATABASE_URL` to point somewhere else. The
+suite builds a template database by running the migrations and clones it per
+worker, so nothing you care about is touched.
+
+### Developing against a local database
+
+The app uses Neon's HTTP driver, which speaks Neon's protocol rather than the
+Postgres wire protocol and so cannot connect to a local Postgres directly. To run
+the real driver locally, put a Neon HTTP proxy in front of it and point
+`NEON_FETCH_ENDPOINT` at it:
+
+```bash
+docker run -d --name fabula-neon-proxy -p 4444:4444 \
+  -e PG_CONNECTION_STRING="postgres://postgres:postgres@host.docker.internal:5432/fabula_dev" \
+  ghcr.io/timowilhelm/local-neon-http-proxy:main
+
+DATABASE_URL="postgres://postgres:postgres@db.localtest.me:4444/fabula_dev" \
+NEON_FETCH_ENDPOINT="http://db.localtest.me:4444/sql" npm run dev
+```
+
+This is worth the setup: the test suite runs on `node-postgres`, and this is the
+only way to exercise the driver that production actually uses. See
+[`docs/adr/0014`](docs/adr/0014-test-infrastructure-and-driver-parity.md).
 
 ## Project layout
 
