@@ -46,3 +46,28 @@ body {
   color: var(--foreground);
   font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
 }
+
+/*
+ * Expands a control's touch area to 44px without changing its visual box or the
+ * layout around it. WCAG 2.5.8 asks for 24px; 44px is the platform guidance from
+ * both Apple and Material, and it is what makes a 16px text link in a header
+ * reliably tappable on a phone.
+ *
+ * Only safe for controls laid out in a row with vertical space around them. A
+ * stacked or wrapping group (the genre chips) needs real height instead, or the
+ * invisible areas overlap each other and the wrong control receives the tap.
+ */
+.tap-target {
+  position: relative;
+}
+
+.tap-target::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  translate: 0 -50%;
+  height: 100%;
+  min-height: 44px;
+}

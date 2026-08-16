@@ -30,3 +30,6 @@ Thumbs.db
 
 # Handoff files
 HANDOFF.md
+# Test artifacts
+coverage/
+responsive-shots/
