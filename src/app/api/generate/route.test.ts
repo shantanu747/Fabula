@@ -16,6 +16,7 @@ vi.mock("@/auth", async () => {
 });
 
 import { POST } from "./route";
+import { __setDbForTests } from "@/lib/db/client";
 import { PROVIDERS } from "@/lib/providers/registry";
 import { MAX_OUTPUT_TOKENS } from "@/lib/providers/constants";
 import type { GenerateParagraphInput, InventedMetadata, LLMProvider } from "@/lib/providers/types";
@@ -81,13 +82,28 @@ function validBody(overrides: Record<string, unknown> = {}) {
   return { providerId: FAKE_ID, storySoFar: [], ...overrides };
 }
 
+let originalDatabaseUrl: string | undefined;
+
 beforeEach(() => {
   lastInput = undefined;
   returnCalled = false;
+
+  // The route now runs guardGenerate() unconditionally (docs/adr/0015), which
+  // makes hasDatabase() true — and the limiter fail closed with 429 — whenever
+  // DATABASE_URL happens to be set in the ambient environment, whether or not
+  // it's reachable. CI sets DATABASE_URL for `next build`'s benefit (see
+  // ci.yml); this suite has no database and must not depend on that being
+  // absent. Same pattern as guard.test.ts.
+  originalDatabaseUrl = process.env.DATABASE_URL;
+  delete process.env.DATABASE_URL;
+  __setDbForTests(undefined);
 });
 
 afterEach(() => {
   delete PROVIDERS[FAKE_ID];
+  if (originalDatabaseUrl === undefined) delete process.env.DATABASE_URL;
+  else process.env.DATABASE_URL = originalDatabaseUrl;
+  __setDbForTests(undefined);
   vi.restoreAllMocks();
 });
 
