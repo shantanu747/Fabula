@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { longestSentinelPrefixOverlap } from "./src/lib/story/streamGeneration";
+import { longestSentinelPrefixOverlap } from "./streamGeneration";
 
 describe("longestSentinelPrefixOverlap", () => {
   it("returns 0 for no overlap", () => {

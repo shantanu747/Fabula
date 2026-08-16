@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { extractInventedMetadata } from "./src/lib/providers/prompt";
+import { extractInventedMetadata } from "./prompt";
 
 describe("extractInventedMetadata", () => {
   it("extracts metadata when expectHeader is true", async () => {

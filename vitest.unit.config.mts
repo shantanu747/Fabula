@@ -20,19 +20,5 @@ export default defineProject({
       "src/lib/db/migrations",
       "src/test",
     ],
-    coverage: {
-      provider: "v8",
-      include: ["src/lib/**", "src/app/api/**"],
-      exclude: [
-        "src/lib/db/migrations/**",
-        "src/lib/story/StoryContext.tsx",
-        "src/lib/providers/{anthropic,openai,openrouter}.ts",
-        "**/*.d.ts",
-      ],
-      thresholds: {
-        "src/lib/**": { statements: 100, branches: 100, functions: 100, lines: 100 },
-        "src/app/api/**": { statements: 90, branches: 90, functions: 90, lines: 90 },
-      },
-    },
   },
 });

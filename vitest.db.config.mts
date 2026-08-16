@@ -21,6 +21,7 @@ export default defineProject({
       "src/test",
     ],
     environment: "node",
+    globalSetup: ["./src/test/global-setup-db.ts"],
     setupFiles: ["./src/test/setup-db.ts"],
   },
 });

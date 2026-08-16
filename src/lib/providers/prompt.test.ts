@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { windowStoryParagraphs } from "./src/lib/providers/prompt";
+import { windowStoryParagraphs } from "./prompt";
 
 describe("windowStoryParagraphs", () => {
   it("returns empty array when input is empty", () => {
@@ -8,15 +8,15 @@ describe("windowStoryParagraphs", () => {
 
   it("returns full array when within budget", () => {
     const paragraphs = [
-      { author: "writer", text: "short" },
-      { author: "ai", text: "text" }
+      { author: "writer" as const, text: "short" },
+      { author: "ai" as const, text: "text" }
     ];
     expect(windowStoryParagraphs(paragraphs)).toBe(paragraphs); // identity reference check
   });
 
   it("keeps anchor and recent paragraphs when over budget", () => {
-    const longAnchor = { author: "writer", text: "a".repeat(10000) }; // Over budget
-    const recent = { author: "ai", text: "recent" };
+    const longAnchor = { author: "writer" as const, text: "a".repeat(10000) }; // Over budget
+    const recent = { author: "ai" as const, text: "recent" };
     const result = windowStoryParagraphs([longAnchor, recent]);
     
     // Should keep the anchor with note and the recent paragraph

@@ -1,9 +1,9 @@
 import { beforeAll, beforeEach } from "vitest";
 import { Pool } from "pg";
 import { drizzle } from "drizzle-orm/node-postgres";
-import { __setDbForTests } from "../src/lib/db/client";
-import type { AppDatabase } from "../src/lib/db/types";
-import * as schema from "../src/lib/db/schema";
+import { __setDbForTests } from "@/lib/db/client";
+import type { AppDatabase } from "@/lib/db/types";
+import * as schema from "@/lib/db/schema";
 
 // Mock the auth module for tests
 import { vi } from "vitest";

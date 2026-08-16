@@ -1,5 +1,7 @@
+import { eq } from "drizzle-orm";
 import {
   boolean,
+  index,
   integer,
   jsonb,
   pgTable,
@@ -45,6 +47,7 @@ export const accounts = pgTable(
   },
   (account) => [
     primaryKey({ columns: [account.provider, account.providerAccountId] }),
+    index().on(account.userId),
   ]
 );
 
@@ -54,7 +57,9 @@ export const sessions = pgTable("session", {
     .notNull()
     .references(() => users.id, { onDelete: "cascade" }),
   expires: timestamp("expires", { mode: "date" }).notNull(),
-});
+}, (t) => [
+  index().on(t.userId),
+]);
 
 export const verificationTokens = pgTable(
   "verificationToken",
@@ -86,7 +91,10 @@ export const stories = pgTable("story", {
   isShared: boolean("isShared").notNull().default(false),
   createdAt: timestamp("createdAt", { mode: "date" }).notNull().defaultNow(),
   updatedAt: timestamp("updatedAt", { mode: "date" }).notNull().defaultNow(),
-});
+}, (t) => [
+  index().on(t.ownerId, t.updatedAt.desc()),
+  index("stories_updated_at_is_shared_idx").on(t.updatedAt).where(eq(t.isShared, true))
+]);
 
 export const storyParagraphs = pgTable("story_paragraph", {
   id: text("id")
@@ -100,7 +108,7 @@ export const storyParagraphs = pgTable("story_paragraph", {
   providerId: text("providerId"),
   position: integer("position").notNull(),
   createdAt: timestamp("createdAt", { mode: "date" }).notNull().defaultNow(),
-});
+}, (t) => [unique().on(t.storyId, t.position)]);
 
 export const storyReports = pgTable(
   "story_report",
@@ -116,5 +124,8 @@ export const storyReports = pgTable(
       .references(() => users.id, { onDelete: "cascade" }),
     createdAt: timestamp("createdAt", { mode: "date" }).notNull().defaultNow(),
   },
-  (t) => [unique().on(t.storyId, t.reporterId) as unknown as any]
+  (t) => [
+    unique().on(t.storyId, t.reporterId),
+    index().on(t.reporterId)
+  ]
 );
