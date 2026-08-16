@@ -1,4 +1,4 @@
-import { and, asc, eq, sql } from "drizzle-orm";
+import { asc, eq, sql } from "drizzle-orm";
 import { stories, storyParagraphs } from "./schema";
 import type { AppDatabase } from "./types";
 import type { StoryParagraph } from "@/lib/providers/types";

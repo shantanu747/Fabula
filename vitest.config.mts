@@ -1,4 +1,3 @@
-import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitest/config";
 import unitConfig from "./vitest.unit.config.mts";
 import dbConfig from "./vitest.db.config.mts";

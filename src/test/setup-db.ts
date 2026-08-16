@@ -7,7 +7,9 @@ import * as schema from "../src/lib/db/schema";
 
 // Mock the auth module for tests
 import { vi } from "vitest";
-export let currentSession: any = null;
+// prefer-const is disabled because tests reassign this exported binding.
+// eslint-disable-next-line prefer-const
+export let currentSession: Record<string, unknown> | null = null;
 vi.mock("@/auth", () => ({
   auth: async () => currentSession, handlers: {}, signIn: vi.fn(), signOut: vi.fn(),
 }));
