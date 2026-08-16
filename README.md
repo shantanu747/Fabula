@@ -24,6 +24,7 @@ This repo treats docs as the source of truth for scope and reasoning, not an aft
 ### Prerequisites
 
 - Node.js 20+
+- npm 11+ (required for proper dependency resolution)
 - A Postgres database (a free [Neon](https://neon.tech) project works well) — only required for accounts, saved stories, and the shared feed; guest writing works without it.
 
 ### Setup

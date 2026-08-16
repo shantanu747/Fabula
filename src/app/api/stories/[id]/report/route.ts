@@ -21,7 +21,7 @@ export async function POST(_request: Request, { params }: RouteContext<"/api/sto
   await db
     .insert(storyReports)
     .values({ storyId: id, reporterId: session.user.id })
-    .onConflictDoNothing();
+    .onConflictDoNothing({ target: [storyReports.storyId, storyReports.reporterId] });
 
   return Response.json({ ok: true });
 }

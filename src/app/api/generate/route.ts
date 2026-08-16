@@ -2,13 +2,16 @@ import { eq } from "drizzle-orm";
 import { auth } from "@/auth";
 import { getDb } from "@/lib/db/client";
 import { stories, storyParagraphs } from "@/lib/db/schema";
+import { syncStoryParagraphs } from "@/lib/db/paragraphs";
+import { insertAIParagraph } from "@/lib/db/paragraphs";
+import { isUniqueViolation } from "@/lib/db/paragraphs";
 import { MAX_OUTPUT_TOKENS } from "@/lib/providers/constants";
 import { getProvider } from "@/lib/providers/registry";
 import type { InventedMetadata, StoryParagraph } from "@/lib/providers/types";
-import {
-  areValidHints,
-  isStoryParagraphArray,
-  isValidTargetLength,
+import { 
+  isStoryParagraphArray, 
+  areValidHints, 
+  isValidTargetLength 
 } from "@/lib/story/validation";
 
 interface GenerateRequestBody {
@@ -77,7 +80,7 @@ export async function POST(request: Request) {
   // story (POST /api/stories). Diff-based against what's already stored, rather than
   // trusting the client to say which paragraphs are "new" (see ADR 0009).
   let persistedStoryId: string | undefined;
-  let storedCount = 0;
+  let aiPosition: number;
   if (input.storyId) {
     const session = await auth();
     if (!session?.user?.id) {
@@ -88,25 +91,20 @@ export async function POST(request: Request) {
     if (!story || story.ownerId !== session.user.id) {
       return Response.json({ error: "Story not found" }, { status: 404 });
     }
-    const existing = await db
-      .select({ position: storyParagraphs.position })
-      .from(storyParagraphs)
-      .where(eq(storyParagraphs.storyId, story.id));
-    storedCount = existing.length;
-
-    const newParagraphs = input.storySoFar.slice(storedCount);
-    if (newParagraphs.length > 0) {
-      await db.insert(storyParagraphs).values(
-        newParagraphs.map((p, i) => ({
-          storyId: story.id,
-          authorType: p.author,
-          text: p.text,
-          providerId: p.providerId,
-          position: storedCount + i,
-        }))
+    
+    const sync = await syncStoryParagraphs(db, story.id, input.storySoFar);
+    if (!sync.ok) {
+      return Response.json(
+        { error: "Story content has diverged from server state" },
+        { status: 409 }
       );
     }
+    
     persistedStoryId = story.id;
+    aiPosition = sync.nextPosition;
+  } else {
+    // For guest path, derive AI position from client array length (unchanged behavior)
+    aiPosition = input.storySoFar.length;
   }
 
   const iterator = provider.generateParagraph({
@@ -135,20 +133,19 @@ export async function POST(request: Request) {
   async function persistAIParagraph(metadata: InventedMetadata | undefined) {
     if (!persistedStoryId) return;
     const db = getDb();
-    // All of storySoFar (persisted above, plus anything already stored from a
-    // prior turn) now occupies positions [0, storySoFar.length) — the AI's new
-    // paragraph is the next one.
-    await db.insert(storyParagraphs).values({
-      storyId: persistedStoryId,
-      authorType: "ai",
-      text: aiText,
+    const wrote = await insertAIParagraph(db, {
+      storyId: persistedStoryId, 
+      text: aiText, 
       providerId: input.providerId,
-      position: input.storySoFar.length,
+      position: aiPosition, 
+      invented: metadata,
     });
-    await db
-      .update(stories)
-      .set({ updatedAt: new Date(), ...(metadata ? { invented: metadata } : {}) })
-      .where(eq(stories.id, persistedStoryId));
+    if (!wrote) {
+      console.warn(
+        `[generate] story ${persistedStoryId} position ${aiPosition} was taken by a ` +
+          `concurrent turn; this generation was superseded and not persisted.`
+      );
+    }
   }
 
   const stream = new ReadableStream<Uint8Array>({
@@ -179,10 +176,20 @@ export async function POST(request: Request) {
         }
       } catch (err) {
         console.error(`[generate] ${provider.id} stream error:`, err);
-        controller.error(err);
+        // Deliberately swallowed. The prose already streamed to the Writer; turning a
+        // persistence failure into a stream error makes the client auto-retry and pay
+        // for a second generation of a paragraph that already succeeded. Losing the
+        // mirror is the smaller loss.
+        console.error(`[generate] failed to persist AI paragraph for ${persistedStoryId ?? "(guest)"}:`, err);
       }
     },
-    async cancel() {
+    async cancel(reason) {
+      // The Writer's client discards the partial text too (streamGeneration returns
+      // without onDone on abort), so dropping it here keeps both sides in sync. The
+      // client's one auto-retry re-runs the whole turn; syncStoryParagraphs is
+      // idempotent against the already-persisted Writer paragraphs, so the retry
+      // appends nothing and simply regenerates the AI turn.
+      console.info(`[generate] stream cancelled for story ${persistedStoryId ?? "(guest)"}:`, reason);
       await iterator.return?.(undefined);
     },
   });
