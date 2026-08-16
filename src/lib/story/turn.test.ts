@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isAIsTurn, isWritersTurn } from "./src/lib/story/turn";
+import { isAIsTurn, isWritersTurn } from "./turn";
 
 describe("turn functions", () => {
   it("isAIsTurn returns true for empty array", () => {
