@@ -4,11 +4,11 @@ import Google from "next-auth/providers/google";
 import { DrizzleAdapter } from "@auth/drizzle-adapter";
 import bcrypt from "bcryptjs";
 import { eq } from "drizzle-orm";
-import { getDb } from "@/lib/db/client";
+import { getAuthAdapterDb, getDb } from "@/lib/db/client";
 import { accounts, sessions, users, verificationTokens } from "@/lib/db/schema";
 
 export const { handlers, auth, signIn, signOut } = NextAuth(() => ({
-  adapter: DrizzleAdapter(getDb(), {
+  adapter: DrizzleAdapter(getAuthAdapterDb(), {
     usersTable: users,
     accountsTable: accounts,
     sessionsTable: sessions,

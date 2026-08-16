@@ -13,6 +13,7 @@ out/
 .idea/
 *.sublime-workspace
 *.sublime-project
+.kilo/
 
 # VSCode settings
 .settings/

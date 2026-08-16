@@ -17,6 +17,24 @@ jobs:
       OPENROUTER_API_KEY: test-key
       DATABASE_URL: postgres://user:pass@localhost:5432/fabula
       AUTH_SECRET: ci-placeholder-secret
+    # The `db` Vitest project (src/test/global-setup-db.ts) needs a real Postgres
+    # to clone its per-worker template from — it fails loudly rather than skipping
+    # silently if it can't reach one. User/password/port match the default
+    # TEST_DB_BASE_URL in src/test/db-names.ts, so no TEST_DATABASE_URL override
+    # is needed here.
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - uses: actions/checkout@v4
 
