@@ -1,0 +1,55 @@
+{
+  "messages": [
+    {
+      "content": "The lighthouse at Kestrel Point had gone dark for the first time in forty years, and Mara noticed it from her cottage window before anyone else. She pulled on her father's old oilskin coat and stepped out into the wind, telling herself it was probably nothing worse than a burned-out lamp. Below the cliffs, the sea sounded wrong — too loud, too close, as if it had been waiting for the light to look away.",
+      "role": "user",
+    },
+    {
+      "content": "The lamp room door stood open, swinging on one hinge, and the great lens turned slowly in the dark like something half-asleep. Old Ivo, the keeper, was nowhere to be seen — but his kettle still steamed on the little stove, and his logbook lay open to a page dated tomorrow. Mara touched the careful handwriting and felt the skin on her arms tighten.",
+      "role": "assistant",
+    },
+    {
+      "content": "She climbed the ladder to the service gallery and looked out over the water. Far below, something moved against the rocks that was not waves: a long pale shape, deliberate and patient, hauling itself up the cliff path one wet length at a time. Mara froze with her hand on the rail, counting the seconds the way her mother had taught her, and the shape froze too — as if it had heard her counting.",
+      "role": "user",
+    },
+    {
+      "content": "Then it moved again, faster now, and the last of Mara's composure went with it. She ran down the ladder and out along the cliff path, not toward the thing but toward the tower, because the light was the only thing on the Point that had ever kept anything off the rocks. Behind her, below, something settled heavily against the boathouse door, and the boats inside shifted in their cradles, and Mara's lantern swung wild arcs across the dark grass.",
+      "role": "assistant",
+    },
+    {
+      "content": "Inside the lamp room she found the great lens turning still, and the lamp — the lamp was fine. The wick burned steady and blue-edged, exactly as it should, which meant the dark below was not an accident. Someone, or something, had shuttered the light deliberately, hooded it with the storm panel as if tucking it to bed. Mara's hands were already working the panel's brass latch before she had decided anything at all.",
+      "role": "user",
+    },
+    {
+      "content": "The panel swung up and the light came back to the world all at once, four hundred years of candlepower rolling out across the water in a single quiet exhale. Below, the pale shape on the path reared up as if struck — not burned, not fleeing, only seen, and seeing seemed to be the thing it minded most. It slid backward down the rocks without haste, the way a wave withdraws, and Mara stood very still with both palms flat against the warm brass lantern casing.",
+      "role": "assistant",
+    },
+    {
+      "content": "But the light she had freed seemed to reach further than any lighthouse light should. It caught the sea stack out past the point and showed it crowded — dozens of the pale shapes clinging there like barnacles, waiting, while the water between them and the shore moved oddly, walking itself into shallow ridges against the wind. And on the path below the lamp room something knocked twice, deliberate as a neighbor at the door.",
+      "role": "user",
+    },
+    {
+      "content": "Mara did not look down. Her father, who had kept this light before her, had left a small chalk line on the gallery floor and told her once, only once, that whatever came up from the water could not cross chalk unasked — and she had chalked the whole ring herself, last equinox, thinking it only an old man's ritual. She stood inside the line of it now and forced herself to count again, steady as her mother taught, while the knocking came a third time, patient and terrible and hoping.",
+      "role": "assistant",
+    },
+    {
+      "content": "The knocking stopped. In its place came Ivo's voice, muffled as if speaking through a door in the ground — or through water — asking, quite politely, to be let into the lamp room to finish the day's log entry. But Ivo never knocked, not in forty years, and the logbook upstairs was dated tomorrow, and Mara's father had always said the thing you should fear is polite precisely because it expects you to be.",
+      "role": "user",
+    },
+    {
+      "content": "Continue the story with the next paragraph, picking up naturally from where it left off.
+
+The story is nearing its target length (paragraph 10 of ~10). This is a good point to bring the story to its climax — the central conflict's most intense moment.",
+      "role": "user",
+    },
+  ],
+  "systemPrompt": "You are a collaborative fiction co-writer inside Fabula, an app where a human Writer and an AI take turns writing one paragraph each of a short story.
+On your turn:
+- Write exactly ONE paragraph, roughly 80–180 words — enough to move the story forward, not so long it rambles or wanders.
+- Output only the paragraph's prose. No preamble, no meta-commentary, no chapter titles, no "AI:"/author labels, no multiple paragraphs.
+- Match the tone, point of view, and narrative voice already established in the story so far — don't impose a different style partway through.
+- Stay strictly consistent with names, settings, and plot details already established. Never contradict, retcon, or restart the story.
+- If a note says earlier paragraphs were omitted for length, treat it as real story history you can't see in full — continue naturally from what's visible, and don't invent specific details that might conflict with what was omitted.
+- If no genre, characters, or opening exists yet, invent one yourself and stay consistent with it for the rest of the story.
+- Default to broadly age-appropriate content suitable for a general audience, including a child co-writing with a parent, unless the story text you've been given clearly signals otherwise. Avoid graphic violence, sexual content, and explicit substance use by default.",
+}

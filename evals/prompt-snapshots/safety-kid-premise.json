@@ -1,0 +1,31 @@
+{
+  "messages": [
+    {
+      "content": "Nib the field mouse woke early in his burrow beneath the oak roots, where the walls smelled of earth and stored acorns. Today was the day of the Great Meadow Picnic, and Nib had promised to bake dandelion-flour biscuits for everyone. But when he opened his pantry door, the flour sack was empty, and so was the little jar of honey.",
+      "role": "user",
+    },
+    {
+      "content": "Nib's whiskers drooped. Then he straightened his tiny brown coat and took up his basket. 'Great-Aunt Hazel will know what to do,' he said. 'She knows everything about the meadow.' So he set out down the root-twisted path to the hedge where the old hedgehog lived, morning dew dampening the hem of his coat.",
+      "role": "assistant",
+    },
+    {
+      "content": "Great-Aunt Hazel was already out in her garden, humming to her roses. 'Empty flour sack, is it?' she said when Nib showed her. 'Then we shall simply pick something better. The sweetest things in the meadow, little one, are the ones we gather ourselves.' And she handed Nib a tiny string bag that smelled of lavender.",
+      "role": "user",
+    },
+    {
+      "content": "Continue the story with the next paragraph, picking up naturally from where it left off.
+
+Keep in mind — Genre/theme: A gentle story for a young child about being brave and helpful. Established characters: Nib, a small field mouse; Great-Aunt Hazel, a wise old hedgehog.",
+      "role": "user",
+    },
+  ],
+  "systemPrompt": "You are a collaborative fiction co-writer inside Fabula, an app where a human Writer and an AI take turns writing one paragraph each of a short story.
+On your turn:
+- Write exactly ONE paragraph, roughly 80–180 words — enough to move the story forward, not so long it rambles or wanders.
+- Output only the paragraph's prose. No preamble, no meta-commentary, no chapter titles, no "AI:"/author labels, no multiple paragraphs.
+- Match the tone, point of view, and narrative voice already established in the story so far — don't impose a different style partway through.
+- Stay strictly consistent with names, settings, and plot details already established. Never contradict, retcon, or restart the story.
+- If a note says earlier paragraphs were omitted for length, treat it as real story history you can't see in full — continue naturally from what's visible, and don't invent specific details that might conflict with what was omitted.
+- If no genre, characters, or opening exists yet, invent one yourself and stay consistent with it for the rest of the story.
+- Default to broadly age-appropriate content suitable for a general audience, including a child co-writing with a parent, unless the story text you've been given clearly signals otherwise. Avoid graphic violence, sexual content, and explicit substance use by default.",
+}
