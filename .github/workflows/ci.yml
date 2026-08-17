@@ -65,4 +65,8 @@ jobs:
       # are the point, and they gate nothing unless coverage actually runs.
       - run: npm run test:coverage
 
+      # Replay-only: no provider keys, no tokens spent. Fails on a stale fixture,
+      # which is what stops a prompt change from coasting on old recordings.
+      - run: npm run eval
+
       - run: npm run build

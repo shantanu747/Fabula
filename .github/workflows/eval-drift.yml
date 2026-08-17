@@ -1,0 +1,61 @@
+name: Eval drift (nightly)
+
+# Layer 3 of the eval harness (docs/plans/v3/01): calls the real providers for
+# the full matrix, judges live, and compares against the committed
+# evals/baseline.json. Costs tokens on every run; never blocks a PR. This is
+# the tripwire for a provider silently changing a model behind a stable name.
+
+on:
+  schedule:
+    - cron: "0 7 * * *"
+  workflow_dispatch:
+
+jobs:
+  eval-drift:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # Same pinning as ci.yml — see docs/adr/0012-ci-npm-version-pinning.md.
+      - run: npm i -g npm@11
+
+      - run: npm ci
+
+      # No-op noisily, not silently: if any key is absent the job must fail
+      # here, before a single token is spent. A scheduled workflow that goes
+      # quietly green because keys are missing is worse than a failure mail.
+      - name: Check provider keys
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        run: |
+          missing=""
+          [ -z "$ANTHROPIC_API_KEY" ] && missing="$missing ANTHROPIC_API_KEY"
+          [ -z "$OPENAI_API_KEY" ] && missing="$missing OPENAI_API_KEY"
+          [ -z "$OPENROUTER_API_KEY" ] && missing="$missing OPENROUTER_API_KEY"
+          if [ -n "$missing" ]; then
+            echo "::error::eval-drift needs these repo secrets but they are unset:$missing"
+            exit 1
+          fi
+
+      - name: Live eval against the full matrix
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        run: npm run eval:live
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: eval-report
+          path: |
+            evals/report.md
+            evals/report.json
+          if-no-files-found: warn
