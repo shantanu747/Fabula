@@ -94,6 +94,10 @@ export async function captureLiveGeneration(
     const stream = await client.chat.completions.create({
       model: payload.model,
       max_completion_tokens: payload.maxTokens,
+      // Must mirror src/lib/providers/openai.ts: without this, gpt-5-mini's
+      // default reasoning exhausts max_completion_tokens and returns an empty
+      // completion on longer contexts.
+      reasoning_effort: "low",
       stream: true,
       messages: [{ role: "system", content: payload.systemPrompt }, ...payload.messages],
     });
@@ -119,11 +123,18 @@ export async function captureLiveGeneration(
 
   const rawSse = taping.lastBody();
   const { chunks, model } = decodeRawSse(vendorForProvider(providerId), rawSse);
-  if (model !== PROVIDER_MODELS[providerId]) {
+  // Providers differ in how they echo the model: Anthropic returns the alias
+  // verbatim ("claude-sonnet-5"), while OpenAI returns the dated snapshot it
+  // resolved the alias to ("gpt-5-mini" -> "gpt-5-mini-2025-08-07"). Strip a
+  // trailing dated suffix before comparing so a resolution is not a failure,
+  // but a genuinely different model still is.
+  const expected = PROVIDER_MODELS[providerId];
+  const resolved = model.replace(/-\d{4}-\d{2}-\d{2}$/, "");
+  if (resolved !== expected) {
     // The eval table must track the adapters' model constants, otherwise the
     // fingerprint hashes a request the app doesn't quite build.
     throw new Error(
-      `live ${providerId} response carried model "${model}" but evals/cases.ts says "${PROVIDER_MODELS[providerId]}" — update PROVIDER_MODELS in the same commit as the adapter change`
+      `live ${providerId} response carried model "${model}" but evals/cases.ts says "${expected}" — update PROVIDER_MODELS in the same commit as the adapter change`
     );
   }
   const { prose, metadata } = await extractProse(caseDef, chunks);

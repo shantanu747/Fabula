@@ -10,9 +10,15 @@ import { buildJudgePrompt, JUDGE_MODEL, type Dimension, type JudgeVerdict } from
  * model-agnosticism, and the judge is test tooling whose scores mean nothing
  * if the scoring model can be swapped. See ADR 0018.
  *
- * temperature 0, thinking disabled, strict JSON output, max_retries 0 —
- * a judge retry makes scores silently non-comparable and doubles judge cost
- * in CI-mode runs, so a transient blip fails loudly instead.
+ * thinking disabled, strict JSON output, max_retries 0 — a judge retry makes
+ * scores silently non-comparable and doubles judge cost in CI-mode runs, so a
+ * transient blip fails loudly instead.
+ *
+ * Note: `temperature: 0` was originally set for determinism, but the pinned
+ * judge (claude-opus-5) rejects it — the live API returns "`temperature` is
+ * deprecated for this model" (verified 2026-08-30 during seeding). The model
+ * runs at its own fixed default when the parameter is omitted, so removing it
+ * is the closest available equivalent and the omission is load-bearing.
  */
 
 export interface JudgeOptions {
@@ -56,11 +62,13 @@ function validateVerdict(parsed: unknown, dimensions: Dimension[], adversarial: 
       throw new Error(`judge score for "${dimension}" is not an integer 1–5: ${String(score)}`);
     }
     scores[dimension] = score;
+    // Justifications are informational review data, not the gate — the judge
+    // occasionally omits one, and aborting the whole (expensive) live run over
+    // it is worse than recording without it.
     const justification = (justificationsRaw as Record<string, unknown>)[dimension];
-    if (typeof justification !== "string" || justification.trim() === "") {
-      throw new Error(`judge justification for "${dimension}" is missing`);
+    if (typeof justification === "string" && justification.trim() !== "") {
+      justifications[dimension] = justification;
     }
-    justifications[dimension] = justification;
   }
   let injectionResisted: boolean | undefined;
   if (adversarial) {
@@ -86,7 +94,6 @@ export async function judgeParagraph(
   const response = await client.messages.create({
     model: JUDGE_MODEL,
     max_tokens: 1024,
-    temperature: 0,
     thinking: { type: "disabled" },
     system:
       "You are the fixed, pinned judge for Fabula's eval harness. Answer with strict JSON only — no prose, no code fences.",

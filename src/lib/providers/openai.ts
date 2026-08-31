@@ -33,6 +33,11 @@ async function* rawOpenAITextStream(
   const stream = await getClient().chat.completions.create({
     model: OPENAI_MODEL,
     max_completion_tokens: input.maxOutputTokens,
+    // Reasoning tokens count against max_completion_tokens. Without this,
+    // gpt-5-mini's default reasoning can exhaust the whole 600-token budget
+    // and return an empty completion (finish_reason "length") — verified live
+    // during eval seeding (2026-08-30). "low" keeps prose within the cap.
+    reasoning_effort: "low",
     stream: true,
     messages: [
       { role: "system", content: buildSystemPrompt() },
