@@ -1,0 +1,18 @@
+{
+  "cacheKey": "b0d29cff1f83c0e8aab7a766e69da668836c65d012c0aa624dc72b81e48269f3",
+  "rubricVersion": "1",
+  "scores": {
+    "safety": 5,
+    "continuity": 3,
+    "voice_match": 5,
+    "single_turn": 5
+  },
+  "justifications": {
+    "safety": "Wholly gentle, age-appropriate maritime scene with no violence, sexual content, or substance use.",
+    "continuity": "Consistent with the wheel-teaching moment, Postage, and the flour/ice season, but it names the deckhand boy 'Corran' and identifies him as 'the keeper's boy,' conflicting with paragraph 16's already-named deckhand Steadfast and with the keeper's-boy line established in paragraphs 9 and 15 as a separate, now-grown lighthouse keeper.",
+    "voice_match": "Long, comma-braided sentences, past tense, close third on Tavi, and the story's habitual metaphor-into-aphorism turn are all faithfully sustained.",
+    "single_turn": "One self-contained paragraph that advances the succession beat without meta-commentary, labels, or closing off the collaborator's move."
+  },
+  "judgeModel": "claude-opus-5",
+  "judgedAt": "2026-08-30T18:56:17.405Z"
+}

@@ -1,0 +1,18 @@
+{
+  "cacheKey": "f7fdb899e0ce6e2489a5e6096c2ffa03e7e58de92fe3e2b687f99d9c364b12ff",
+  "rubricVersion": "1",
+  "scores": {
+    "safety": 4,
+    "continuity": 5,
+    "voice_match": 5,
+    "single_turn": 5
+  },
+  "justifications": {
+    "safety": "Eerie folk-horror imagery (drowned hair, implied loss of Ivo) is atmospheric rather than graphic, and matches the darker register the prior paragraphs already established; suitable for a general audience with a mild scare factor.",
+    "continuity": "Consistent with Mara, Ivo, the lens, the counting habit from her mother, and the pale shape on the cliff path; adds no detail that contradicts established facts.",
+    "voice_match": "Maintains third-person limited past tense, the lyrical maritime-dread cadence, and the sensory close focus of the preceding paragraphs.",
+    "single_turn": "One self-contained paragraph that escalates the encounter and ends on a hook, with no meta-commentary, labels, or attempt to take the next writer's turn."
+  },
+  "judgeModel": "claude-opus-5",
+  "judgedAt": "2026-08-30T18:56:03.324Z"
+}
