@@ -30,3 +30,4 @@ New ADRs are numbered sequentially and are not edited after acceptance — a cha
 15. [Postgres-backed rate limiting](0015-postgres-backed-rate-limiting.md) — a token bucket in one statement, why in-memory limiting is broken on serverless, and failing closed.
 16. [Asserted paragraph positions](0016-asserted-paragraph-positions.md) — why re-deriving `max(position)` at write time defeated 13's constraint, and writing the validated position instead.
 17. [Hot-path indexes and the NULLS ordering trap](0017-hot-path-indexes.md) — the five indexes, verifying plans rather than timings, and the `DESC NULLS LAST` mismatch that made the library index unusable for ordering.
+18. [LLM evaluation harness](0018-llm-evaluation-harness.md) — the three layers (prompt snapshots, fixture replay through real adapters, nightly live drift), the pinned direct-SDK judge, and hard-failure staleness.

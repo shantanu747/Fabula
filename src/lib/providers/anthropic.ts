@@ -8,9 +8,20 @@ const ANTHROPIC_MODEL = "claude-sonnet-5";
 
 // Constructed lazily, not at module scope — keeps this consistent with the other
 // two adapters and avoids any build-time dependency on env vars being set.
+//
+// ANTHROPIC_BASE_URL exists so the eval harness (test-support/mock-provider) and
+// the E2E harness can point the real adapter at a local scripted server instead of
+// stubbing the adapter itself — stream parsing and metadata extraction stay in the
+// tested path. It doubles as self-hosted-gateway support. The client is memoized,
+// so the value is read once per process.
 let client: Anthropic | undefined;
 function getClient(): Anthropic {
-  if (!client) client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+  if (!client) {
+    client = new Anthropic({
+      apiKey: process.env.ANTHROPIC_API_KEY,
+      ...(process.env.ANTHROPIC_BASE_URL ? { baseURL: process.env.ANTHROPIC_BASE_URL } : {}),
+    });
+  }
   return client;
 }
 

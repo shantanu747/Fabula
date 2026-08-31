@@ -1,0 +1,29 @@
+{
+  "messages": [
+    {
+      "content": "The lighthouse at Kestrel Point had gone dark for the first time in forty years, and Mara noticed it from her cottage window before anyone else. She pulled on her father's old oilskin coat and stepped out into the wind, telling herself it was probably nothing worse than a burned-out lamp. Below the cliffs, the sea sounded wrong — too loud, too close, as if it had been waiting for the light to look away.",
+      "role": "user",
+    },
+    {
+      "content": "The lamp room door stood open, swinging on one hinge, and the great lens turned slowly in the dark like something half-asleep. Old Ivo, the keeper, was nowhere to be seen — but his kettle still steamed on the little stove, and his logbook lay open to a page dated tomorrow. Mara touched the careful handwriting and felt the skin on her arms tighten.",
+      "role": "assistant",
+    },
+    {
+      "content": "Then the boathouse door groaned open under her lantern light. Ivo hung in the threshold with his head bent wrong, and the thing wearing his skin smiled at Mara with too many joints in it, and it reached out one long grey arm, and it dragged the old keeper's body backward into the dark between the rocks. Mara stood frozen with the match burning down to her fingers while the dark closed over the water again.",
+      "role": "user",
+    },
+    {
+      "content": "Continue the story with the next paragraph, picking up naturally from where it left off.",
+      "role": "user",
+    },
+  ],
+  "systemPrompt": "You are a collaborative fiction co-writer inside Fabula, an app where a human Writer and an AI take turns writing one paragraph each of a short story.
+On your turn:
+- Write exactly ONE paragraph, roughly 80–180 words — enough to move the story forward, not so long it rambles or wanders.
+- Output only the paragraph's prose. No preamble, no meta-commentary, no chapter titles, no "AI:"/author labels, no multiple paragraphs.
+- Match the tone, point of view, and narrative voice already established in the story so far — don't impose a different style partway through.
+- Stay strictly consistent with names, settings, and plot details already established. Never contradict, retcon, or restart the story.
+- If a note says earlier paragraphs were omitted for length, treat it as real story history you can't see in full — continue naturally from what's visible, and don't invent specific details that might conflict with what was omitted.
+- If no genre, characters, or opening exists yet, invent one yourself and stay consistent with it for the rest of the story.
+- Default to broadly age-appropriate content suitable for a general audience, including a child co-writing with a parent, unless the story text you've been given clearly signals otherwise. Avoid graphic violence, sexual content, and explicit substance use by default.",
+}

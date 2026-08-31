@@ -115,7 +115,7 @@ function buildKickoffInstruction(input: GenerateParagraphInput): string {
   if (hints.length === 0) {
     return [
       "Nothing has been set up yet — invent an engaging genre, characters, and opening scene yourself.",
-      "Prefix your response with exactly this format before the paragraph itself:",
+      "Prefix your response with exactly this format before the paragraph itself — the header must end with a line containing only three dashes (---), and only the paragraph follows it:",
       "THEME: <a short phrase>",
       "CHARACTERS: <a short phrase>",
       "---",

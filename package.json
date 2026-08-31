@@ -12,6 +12,9 @@
     "test:db": "vitest run --project db",
     "test:perf": "vitest run --config vitest.perf.config.mts",
     "test:coverage": "vitest run --coverage",
+    "eval": "vitest run --config vitest.eval.config.mts",
+    "eval:record": "node --env-file-if-exists=.env.local ./node_modules/.bin/tsx evals/record.ts",
+    "eval:live": "node --env-file-if-exists=.env.local ./node_modules/.bin/tsx evals/run.ts --live --full",
     "db:generate": "node --env-file=.env.local ./node_modules/.bin/drizzle-kit generate",
     "db:migrate": "node --env-file=.env.local ./node_modules/.bin/drizzle-kit migrate"
   },
@@ -42,6 +45,7 @@
     "pg": "^8.23.0",
     "playwright": "^1.62.1",
     "tailwindcss": "^4",
+    "tsx": "4.23.12",
     "typescript": "^5",
     "vitest": "^4.1.10"
   }

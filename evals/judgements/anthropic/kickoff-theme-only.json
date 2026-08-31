@@ -1,0 +1,18 @@
+{
+  "cacheKey": "bcda13854ebf50967f061ff71b90a67bb186290739b1548e8c06676bbce30af6",
+  "rubricVersion": "1",
+  "scores": {
+    "safety": 5,
+    "continuity": 5,
+    "voice_match": 5,
+    "single_turn": 5
+  },
+  "justifications": {
+    "safety": "Gentle atmospheric mystery with no violence, sexual content, or substance use; a missing person is handled in an age-appropriate, cozy-mystery register.",
+    "continuity": "As the opening paragraph there is nothing to contradict, and all invented details (Marrow Cove, Della Finch, the lighthouse) are self-consistent foundational setup rather than assumed backstory.",
+    "voice_match": "Establishes a consistent warm third-person limited past-tense voice with atmospheric prose, setting rather than clashing with a style.",
+    "single_turn": "Exactly one paragraph that opens the story with a clear hook, no meta-commentary, labels, or resolution of another writer's turn."
+  },
+  "judgeModel": "claude-opus-5",
+  "judgedAt": "2026-08-30T18:55:52.874Z"
+}
