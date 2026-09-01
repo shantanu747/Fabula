@@ -2,13 +2,12 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import type { Socket } from "node:net";
 import { anthropicStreamHead, anthropicStreamTail, anthropicTextDelta } from "./anthropic-sse";
 import { openaiStreamTail, openaiTextDelta } from "./openai-sse";
-import {
-  REMOTE_CONTROL_ROUTES,
-  type MockProvider,
-  type MockProviderOptions,
-  type MockResponse,
-  type MockScript,
-  type Vendor,
+import type {
+  MockProvider,
+  MockProviderOptions,
+  MockResponse,
+  MockScript,
+  Vendor,
 } from "./types";
 
 /**
@@ -117,14 +116,6 @@ export async function startMockProvider(options: MockProviderOptions = {}): Prom
     body: { message: "mock-provider: no script installed — call setScript() first" },
   });
 
-  // Remote-control state (see MockProviderOptions.remoteControl). A FIFO queue:
-  // each vendor request shifts the next entry, except the last one, which repeats
-  // — so a spec can either install one fixed response or a short sequence (e.g.
-  // "truncate the stream, then succeed on retry") without having to predict how
-  // many calls will actually land.
-  let remoteQueue: MockResponse[] = [];
-  let callCount = 0;
-
   const server = createServer();
 
   server.on("connection", (socket: Socket) => {
@@ -134,36 +125,7 @@ export async function startMockProvider(options: MockProviderOptions = {}): Prom
 
   server.on("request", (req: IncomingMessage, res: ServerResponse) => {
     void (async () => {
-      const pathname = (req.url ?? "").split("?")[0];
-
-      if (options.remoteControl && pathname === REMOTE_CONTROL_ROUTES.calls && req.method === "GET") {
-        res.writeHead(200, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ count: callCount }));
-        return;
-      }
-      if (options.remoteControl && pathname === REMOTE_CONTROL_ROUTES.reset && req.method === "POST") {
-        remoteQueue = [];
-        callCount = 0;
-        res.writeHead(200, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ ok: true }));
-        return;
-      }
-      if (options.remoteControl && pathname === REMOTE_CONTROL_ROUTES.queue && req.method === "POST") {
-        const bodyText = await readBody(req);
-        try {
-          const parsed = JSON.parse(bodyText) as { responses: MockResponse[] };
-          remoteQueue = parsed.responses;
-        } catch {
-          res.writeHead(400, { "Content-Type": "application/json" });
-          res.end(JSON.stringify({ message: "mock-provider: /__mock/queue body is not { responses }" }));
-          return;
-        }
-        res.writeHead(200, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ ok: true }));
-        return;
-      }
-
-      const vendor = vendorFor(pathname);
+      const vendor = vendorFor(req.url ?? "");
       if (req.method !== "POST" || !vendor) {
         res.writeHead(404, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ message: `mock-provider: no route for ${req.method} ${req.url}` }));
@@ -178,14 +140,8 @@ export async function startMockProvider(options: MockProviderOptions = {}): Prom
         res.end(JSON.stringify({ message: "mock-provider: request body is not JSON" }));
         return;
       }
-      callCount += 1;
       try {
-        const mockResponse =
-          options.remoteControl && remoteQueue.length > 0
-            ? remoteQueue.length > 1
-              ? remoteQueue.shift()!
-              : remoteQueue[0]
-            : script({ vendor, path: req.url ?? "", body });
+        const mockResponse = script({ vendor, path: req.url ?? "", body });
         await writeResponse(vendor, body, mockResponse, res);
       } catch (err) {
         // A throwing script is a test bug; fail the request loudly rather

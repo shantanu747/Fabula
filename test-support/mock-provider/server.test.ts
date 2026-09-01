@@ -143,11 +143,6 @@ describe("mock server sanity", () => {
     expect(response.status).toBe(404);
   });
 
-  it("leaves the remote-control routes 404 when remoteControl is off", async () => {
-    const response = await fetch(`${mock.url}/__mock/calls`);
-    expect(response.status).toBe(404);
-  });
-
   it("fails loudly when no script is installed", async () => {
     // Fresh server with no setScript: every vendor route must error, not hang.
     const bare = await startMockProvider();
@@ -163,62 +158,5 @@ describe("mock server sanity", () => {
     } finally {
       await bare.stop();
     }
-  });
-});
-
-describe("remote-control plane (used by the E2E harness, not setScript)", () => {
-  let remote: MockProvider;
-
-  beforeAll(async () => {
-    remote = await startMockProvider({ remoteControl: true });
-  });
-
-  afterAll(async () => {
-    await remote.stop();
-  });
-
-  it("serves queued responses over HTTP and repeats the last one", async () => {
-    await fetch(`${remote.url}/__mock/reset`, { method: "POST" });
-    await fetch(`${remote.url}/__mock/queue`, {
-      method: "POST",
-      body: JSON.stringify({
-        responses: [
-          { kind: "stream", chunks: ["first "] },
-          { kind: "stream", chunks: ["second "] },
-        ],
-      }),
-    });
-
-    // A fresh SDK client pointed at `remote`, not the app's memoized adapters
-    // (which are pinned to the outer `mock` server for this file's process).
-    const client = new Anthropic({ apiKey: "mock-test-key", baseURL: remote.url, maxRetries: 0 });
-    async function call(): Promise<string> {
-      const stream = client.messages.stream({
-        model: "claude-sonnet-5",
-        max_tokens: 8,
-        messages: [{ role: "user", content: "x" }],
-      });
-      let text = "";
-      for await (const event of stream) {
-        if (event.type === "content_block_delta" && event.delta.type === "text_delta") {
-          text += event.delta.text;
-        }
-      }
-      return text;
-    }
-
-    expect(await call()).toBe("first ");
-    expect(await call()).toBe("second ");
-    // Queue is down to its last entry — it repeats rather than erroring.
-    expect(await call()).toBe("second ");
-
-    const callsResponse = await fetch(`${remote.url}/__mock/calls`);
-    expect((await callsResponse.json()).count).toBe(3);
-  });
-
-  it("resets the call counter and queue", async () => {
-    await fetch(`${remote.url}/__mock/reset`, { method: "POST" });
-    const callsResponse = await fetch(`${remote.url}/__mock/calls`);
-    expect((await callsResponse.json()).count).toBe(0);
   });
 });

@@ -40,22 +40,4 @@ export interface MockProvider {
 export interface MockProviderOptions {
   /** Defaults to 0 (ephemeral) so parallel suites never collide. */
   port?: number;
-  /**
-   * Adds an HTTP control plane (POST /__mock/queue, POST /__mock/reset,
-   * GET /__mock/calls) for configuring responses from a different process than
-   * the one that called startMockProvider() — needed for the E2E harness, where
-   * Playwright's global-setup (which starts this server, ahead of the app under
-   * test) and the spec files (which need to pick the next response) run in
-   * separate processes. Vitest/eval usage is same-process and uses setScript()
-   * instead; this defaults off so that path is unaffected.
-   */
-  remoteControl?: boolean;
 }
-
-/** Route paths for the optional remote-control plane. Shared so a remote caller
- *  (e2e/helpers/mock.ts) and the server agree on them without duplicating literals. */
-export const REMOTE_CONTROL_ROUTES = {
-  queue: "/__mock/queue",
-  reset: "/__mock/reset",
-  calls: "/__mock/calls",
-} as const;

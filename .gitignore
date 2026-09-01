@@ -41,8 +41,3 @@ evals/report.md
 # graphify knowledge graph (regenerable via /graphify; extraction cache backed up
 # outside the repo at ~/.cache/graphify/fabula/ so a branch switch can't lose it)
 graphify-out/
-
-# Playwright E2E artifacts
-e2e/.playwright/
-playwright-report/
-test-results/
