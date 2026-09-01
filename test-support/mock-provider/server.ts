@@ -26,7 +26,15 @@ import {
 const SSE_HEADERS = {
   "Content-Type": "text/event-stream",
   "Cache-Control": "no-cache",
-  Connection: "keep-alive",
+  // "close", not "keep-alive": this server backs multiple, unrelated tests
+  // sharing one long-lived provider SDK client (and thus one connection pool)
+  // for the whole run. A truncate/hang response destroys or abandons its
+  // socket deliberately (see below), and with keep-alive on, the SDK's pool
+  // can race to reuse that socket for the *next* test's unrelated request —
+  // observed as an intermittent "SocketError: other side closed" on a
+  // request that has nothing to do with the truncate test. Forcing a fresh
+  // connection per request removes the pool-reuse race entirely.
+  Connection: "close",
 } as const;
 
 function vendorFor(pathname: string): Vendor | undefined {
@@ -133,6 +141,11 @@ export async function startMockProvider(options: MockProviderOptions = {}): Prom
   });
 
   server.on("request", (req: IncomingMessage, res: ServerResponse) => {
+    // Same reasoning as SSE_HEADERS' Connection: "close" above — apply it to
+    // every response this server sends (error/hang/remote-control routes
+    // included), not just streams, so no path can leave a pooled socket for
+    // a later, unrelated request to race against.
+    res.setHeader("Connection", "close");
     void (async () => {
       const pathname = (req.url ?? "").split("?")[0];
 
