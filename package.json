@@ -15,8 +15,8 @@
     "eval": "vitest run --config vitest.eval.config.mts",
     "eval:record": "node --env-file-if-exists=.env.local ./node_modules/.bin/tsx evals/record.ts",
     "eval:live": "node --env-file-if-exists=.env.local ./node_modules/.bin/tsx evals/run.ts --live --full",
-    "test:e2e": "playwright test",
-    "test:e2e:ui": "playwright test --ui",
+    "test:e2e": "playwright test --config e2e/playwright.config.ts",
+    "test:e2e:ui": "playwright test --config e2e/playwright.config.ts --ui",
     "db:generate": "node --env-file=.env.local ./node_modules/.bin/drizzle-kit generate",
     "db:migrate": "node --env-file=.env.local ./node_modules/.bin/drizzle-kit migrate"
   },
