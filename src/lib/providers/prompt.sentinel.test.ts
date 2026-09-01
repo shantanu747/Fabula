@@ -3,7 +3,7 @@ import fc from "fast-check";
 import { extractInventedMetadata } from "./prompt";
 import type { InventedMetadata } from "./types";
 
-async function* fromChunks(chunks: readonly string[]): AsyncGenerator<string> {
+async function* fromChunks(chunks: readonly string[]): AsyncGenerator<string, void, unknown> {
   for (const chunk of chunks) yield chunk;
 }
 
@@ -13,14 +13,14 @@ async function* fromChunks(chunks: readonly string[]): AsyncGenerator<string> {
  * discards. This mirrors how the API route consumes it.
  */
 async function drain(
-  stream: AsyncIterable<string>,
+  stream: AsyncGenerator<string, void, unknown>,
   expectHeader: boolean
 ): Promise<{ prose: string; metadata: InventedMetadata | undefined }> {
   const generator = extractInventedMetadata(stream, expectHeader);
   let prose = "";
   for (;;) {
     const step = await generator.next();
-    if (step.done) return { prose, metadata: step.value };
+    if (step.done) return { prose, metadata: step.value.metadata };
     prose += step.value;
   }
 }

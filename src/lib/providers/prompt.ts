@@ -1,5 +1,11 @@
 import { CONTEXT_WINDOW_CHAR_BUDGET } from "./constants";
-import type { GenerateParagraphInput, InventedMetadata, StoryParagraph } from "./types";
+import type {
+  GenerateParagraphInput,
+  GenerationResult,
+  InventedMetadata,
+  ProviderTurnInfo,
+  StoryParagraph,
+} from "./types";
 
 export function buildSystemPrompt(): string {
   return [
@@ -169,21 +175,35 @@ function parseMetadataHeader(header: string): InventedMetadata {
   };
 }
 
+export interface ExtractedResult<R> {
+  metadata: InventedMetadata | undefined;
+  /** The inner raw stream's own return value, propagated rather than discarded. */
+  raw: R;
+}
+
 /**
  * Only active for the true "zero input" kickoff case (UC-3's precondition). Buffers
  * raw chunks until the model's `---` delimiter, parses the header into InventedMetadata,
- * yields only the prose after it, and returns the parsed metadata. A pure passthrough
- * (returns undefined) whenever expectHeader is false.
+ * yields only the prose after it, and returns the parsed metadata alongside whatever the
+ * inner stream itself returned (usage/model, or void for a stream with no return value —
+ * see prompt.sentinel.test.ts and evals/record.ts's chunkStream). A pure passthrough
+ * (metadata: undefined) whenever expectHeader is false.
+ *
+ * Generic over the inner stream's return type `R` so this stays reusable for the eval
+ * harness's non-provider streams. Driven with a manual `.next()` loop rather than
+ * `for await…of` specifically so the inner stream's return value isn't discarded —
+ * `for await…of` throws it away, which is the exact bug class this file's other tests
+ * (prompt.sentinel.test.ts) already exist to catch for the metadata side of this function.
  */
-export async function* extractInventedMetadata(
-  rawStream: AsyncIterable<string>,
+export async function* extractInventedMetadata<R>(
+  rawStream: AsyncGenerator<string, R, unknown>,
   expectHeader: boolean
-): AsyncGenerator<string, InventedMetadata | undefined, unknown> {
+): AsyncGenerator<string, ExtractedResult<R>, unknown> {
   if (!expectHeader) {
-    for await (const chunk of rawStream) {
-      yield chunk;
-    }
-    return undefined;
+    // Pure delegation: `yield*` forwards every yielded chunk AND evaluates to the
+    // inner generator's return value, unlike `for await…of` which discards it.
+    const raw = yield* rawStream;
+    return { metadata: undefined, raw };
   }
 
   let buffer = "";
@@ -203,20 +223,28 @@ export async function* extractInventedMetadata(
     return stripped;
   }
 
-  for await (const chunk of rawStream) {
+  // Header path does per-chunk transformation (buffering, delimiter detection,
+  // leading-whitespace stripping), so it can't be a pure `yield*` delegation — it
+  // has to inspect and reshape each chunk before deciding what to yield. Driven
+  // manually via `.next()` so `step.value` (the inner stream's return) is still
+  // available once `step.done`.
+  let step = await rawStream.next();
+  while (!step.done) {
+    const chunk = step.value;
     if (foundDelimiter) {
       const out = emit(chunk);
       if (out) yield out;
-      continue;
+    } else {
+      buffer += chunk;
+      const idx = buffer.indexOf(METADATA_DELIMITER);
+      if (idx !== -1) {
+        foundDelimiter = true;
+        metadata = parseMetadataHeader(buffer.slice(0, idx));
+        const rest = emit(buffer.slice(idx + METADATA_DELIMITER.length));
+        if (rest) yield rest;
+      }
     }
-    buffer += chunk;
-    const idx = buffer.indexOf(METADATA_DELIMITER);
-    if (idx !== -1) {
-      foundDelimiter = true;
-      metadata = parseMetadataHeader(buffer.slice(0, idx));
-      const rest = emit(buffer.slice(idx + METADATA_DELIMITER.length));
-      if (rest) yield rest;
-    }
+    step = await rawStream.next();
   }
 
   // Model ignored the header format (e.g. a refusal or an instruction miss) — fall
@@ -225,19 +253,24 @@ export async function* extractInventedMetadata(
     yield buffer;
   }
 
-  return metadata;
+  return { metadata, raw: step.value };
 }
 
 /**
  * Shared wrapper every adapter's generateParagraph delegates to. Handles windowing,
- * deciding whether to expect the invented-metadata header, and delegating to
- * extractInventedMetadata — the only provider-specific part is rawTextStream, which
- * just turns that SDK's native stream into raw text chunks.
+ * deciding whether to expect the invented-metadata header, delegating to
+ * extractInventedMetadata, and reshaping its `{ metadata, raw }` pair into the public
+ * `GenerationResult` — the only provider-specific part is rawTextStream, which just
+ * turns that SDK's native stream into raw text chunks plus a `ProviderTurnInfo` return
+ * (usage/model).
  */
 export function generateWithProvider(
   input: GenerateParagraphInput,
-  rawTextStream: (input: GenerateParagraphInput, trueCount: number) => AsyncIterable<string>
-): AsyncGenerator<string, InventedMetadata | undefined, unknown> {
+  rawTextStream: (
+    input: GenerateParagraphInput,
+    trueCount: number
+  ) => AsyncGenerator<string, ProviderTurnInfo, unknown>
+): AsyncGenerator<string, GenerationResult, unknown> {
   const expectHeader =
     input.storySoFar.length === 0 && !input.theme && !input.characters && !input.openingLines;
   const trueCount = input.storySoFar.length; // captured before windowing may trim it
@@ -245,5 +278,13 @@ export function generateWithProvider(
     ...input,
     storySoFar: windowStoryParagraphs(input.storySoFar),
   };
-  return extractInventedMetadata(rawTextStream(windowed, trueCount), expectHeader);
+  return combineResult(rawTextStream(windowed, trueCount), expectHeader);
+}
+
+async function* combineResult(
+  rawStream: AsyncGenerator<string, ProviderTurnInfo, unknown>,
+  expectHeader: boolean
+): AsyncGenerator<string, GenerationResult, unknown> {
+  const { metadata, raw } = yield* extractInventedMetadata(rawStream, expectHeader);
+  return { invented: metadata, usage: raw.usage, model: raw.model };
 }

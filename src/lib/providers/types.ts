@@ -29,16 +29,37 @@ export interface InventedMetadata {
   characters?: string;
 }
 
+export interface TokenUsage {
+  inputTokens: number;
+  outputTokens: number;
+}
+
+/** What a provider adapter's raw stream reports on completion, before metadata extraction. */
+export interface ProviderTurnInfo {
+  usage?: TokenUsage;
+  /** The concrete model id the adapter used, for cost lookup and drift detection. */
+  model: string;
+}
+
+export interface GenerationResult {
+  /** UC-3's invented theme/characters. Was previously the whole return value. */
+  invented?: InventedMetadata;
+  usage?: TokenUsage;
+  /** The concrete model id the adapter used, for cost lookup and drift detection. */
+  model: string;
+}
+
 export interface LLMProvider {
   id: string; // 'anthropic' | 'openai' | 'openrouter' | ...
   displayName: string;
   /**
-   * Extends AGENTS.md's `AsyncIterable<string>` to `AsyncGenerator<string, InventedMetadata | undefined>`.
+   * Extends AGENTS.md's `AsyncIterable<string>` to `AsyncGenerator<string, GenerationResult>`.
    * Structurally still satisfies AsyncIterable<string> — `for await...of` consumers see no difference.
    * Only a manual .next()-driven consumer (the route handler) reads the generator's return value,
-   * which carries the AI's invented theme/characters for UC-3's "separate tag" display requirement.
+   * which carries the AI's invented theme/characters (UC-3) plus token usage and the resolved
+   * model id (observability/cost accounting) out of band.
    */
   generateParagraph(
     input: GenerateParagraphInput
-  ): AsyncGenerator<string, InventedMetadata | undefined, unknown>;
+  ): AsyncGenerator<string, GenerationResult, unknown>;
 }

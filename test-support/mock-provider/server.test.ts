@@ -53,7 +53,7 @@ async function collect(provider: LLMProvider, input: GenerateParagraphInput) {
   for (;;) {
     const { value, done } = await iterator.next();
     if (done) {
-      metadata = value;
+      metadata = value.invented;
       break;
     }
     chunks.push(value);
