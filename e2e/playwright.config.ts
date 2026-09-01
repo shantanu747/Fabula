@@ -49,11 +49,6 @@ export default defineConfig({
     reuseExistingServer: !process.env.CI,
     timeout: 180_000,
     cwd: "..",
-    // TEMPORARY, alongside the [generate:timing] console.log lines in
-    // src/app/api/generate/route.ts (see ADR 0020): webServer only pipes
-    // stderr by default, which is why every [WebServer] line seen so far has
-    // been a console.error. Remove this once those diagnostics are removed.
-    stdout: "pipe",
     env: {
       ANTHROPIC_BASE_URL: MOCK_PROVIDER_URL,
       // The SDK requires a non-empty string even when the base URL is local.
