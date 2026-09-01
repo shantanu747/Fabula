@@ -161,3 +161,41 @@ export const rateLimitBuckets = pgTable("rate_limit_bucket", {
   tokens: doublePrecision("tokens").notNull(),
   updatedAt: timestamp("updatedAt", { mode: "date" }).notNull().defaultNow(),
 });
+
+/**
+ * Durable, SQL-queryable per-generation cost/token history (docs/adr/0022). One
+ * row per /api/generate call, written best-effort alongside the OTel span — the
+ * span is the source of truth for tracing, this table is for questions a
+ * sampled/expiring trace backend can't answer, like "what did user X cost last
+ * month".
+ *
+ * Deliberately `onDelete: "set null"` on userId/storyId, unlike every other
+ * table's `cascade` above: this table's whole purpose is durable history, and a
+ * deleted account or story shouldn't erase what it already cost. Both are
+ * nullable for the same reason every other field here is best-effort — guests
+ * (no userId) and unsaved stories (no storyId) still generate and still cost
+ * money.
+ */
+export const generationEvents = pgTable(
+  "generation_event",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    requestId: text("requestId").notNull(),
+    providerId: text("providerId").notNull(),
+    model: text("model").notNull(),
+    userId: text("userId").references(() => users.id, { onDelete: "set null" }),
+    storyId: text("storyId").references(() => stories.id, { onDelete: "set null" }),
+    inputTokens: integer("inputTokens"),
+    outputTokens: integer("outputTokens"),
+    costUsd: doublePrecision("costUsd"),
+    ttftMs: integer("ttftMs"),
+    totalMs: integer("totalMs"),
+    outcome: text("outcome")
+      .$type<"success" | "provider_error" | "cancelled" | "persist_failed">()
+      .notNull(),
+    createdAt: timestamp("createdAt", { mode: "date" }).notNull().defaultNow(),
+  },
+  (t) => [index().on(t.userId), index().on(t.createdAt)]
+);
