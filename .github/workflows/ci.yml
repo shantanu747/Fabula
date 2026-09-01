@@ -70,3 +70,89 @@ jobs:
       - run: npm run eval
 
       - run: npm run build
+
+  e2e:
+    runs-on: ubuntu-latest
+    # Parallel to `build`, not chained after it — this job does its own
+    # `next build` inside Playwright's webServer, pointed at the harness's own
+    # database and mock provider rather than the placeholder values above.
+    env:
+      DATABASE_URL: postgres://postgres:postgres@db.localtest.me:4444/fabula_e2e
+      NEON_FETCH_ENDPOINT: http://db.localtest.me:4444/sql
+      AUTH_SECRET: ci-placeholder-secret
+      # host.docker.internal (README's local dev instructions) doesn't resolve
+      # on Linux runners — the proxy service reaches Postgres over the
+      # Actions-provided network by service name instead (see the neon-proxy
+      # service below). Playwright's own db.localtest.me:4444 default (which
+      # resolves to 127.0.0.1) still works for the *runner's* own connections,
+      # since both services publish to the runner's localhost too.
+      E2E_NEON_PROXY_HOST: db.localtest.me:4444
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      neon-proxy:
+        image: ghcr.io/timowilhelm/local-neon-http-proxy:main
+        env:
+          # "postgres" is the service hostname above, reachable from this
+          # container on the Actions-provided Docker network. fabula_e2e is
+          # created later by Playwright's global-setup.ts, before the app
+          # itself ever queries through this proxy — the proxy connects
+          # lazily per-request, so it doesn't need the database to exist yet.
+          PG_CONNECTION_STRING: postgres://postgres:postgres@postgres:5432/fabula_e2e
+        ports:
+          - 4444:4444
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # See docs/adr/0012 — same reasoning as the build job above.
+      - run: npm i -g npm@11
+
+      - run: npm ci
+
+      - name: Wait for the Neon HTTP proxy
+        run: |
+          for i in $(seq 1 30); do
+            code=$(curl -s -o /dev/null -w "%{http_code}" -X POST http://localhost:4444/sql \
+              -H "Content-Type: application/json" -d '{}' || true)
+            if [ -n "$code" ] && [ "$code" != "000" ]; then
+              echo "proxy responded with HTTP $code"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "Neon HTTP proxy never became reachable at localhost:4444" >&2
+          exit 1
+
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+
+      - run: npx playwright install --with-deps chromium
+
+      - run: npm run test:e2e
+
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 7
