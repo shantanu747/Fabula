@@ -21,6 +21,18 @@ export default defineConfig({
 
   retries: process.env.CI ? 1 : 0,
 
+  expect: {
+    // Default is 5s. Every assertion here can sit behind a real network
+    // round trip: guardGenerate's rate-limit check alone is a DB write
+    // through the local Neon HTTP proxy (ADR 0009), before the mock
+    // provider or its streamed chunks ever enter the picture. A dev
+    // machine absorbs that easily; GitHub's shared ubuntu-latest runners
+    // (2 vCPU) don't always. See ADR 0020 for how this was diagnosed
+    // (and what it isn't — a connection-pool race, ruled out by soak
+    // test) and `npm run test:e2e:soak` for re-verifying it.
+    timeout: process.env.CI ? 15_000 : 5_000,
+  },
+
   use: {
     baseURL: BASE_URL,
     trace: "retain-on-failure",
