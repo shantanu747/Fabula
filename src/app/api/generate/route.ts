@@ -50,6 +50,13 @@ function isAIsTurn(storySoFar: StoryParagraph[]): boolean {
 const METADATA_SENTINEL = "\n FABULA:METADATA ";
 
 export async function POST(request: Request) {
+  // TEMPORARY (remove once ADR 0020's open question is answered): guest-write.spec.ts's
+  // first test intermittently sits stuck for 15s+ in CI with no visible client-side
+  // network activity before the whole paragraph appears at once. The client renders the
+  // "isStreaming" attribution optimistically (src/app/story/page.tsx), so a stall here —
+  // before the Response (and its headers) is ever returned — is invisible to the browser
+  // as anything but a pending fetch. These timestamps exist to find out which await it is.
+  const t0 = Date.now();
   let body: unknown;
   try {
     body = await request.json();
@@ -80,11 +87,13 @@ export async function POST(request: Request) {
   // cookie signature and makes no database call (docs/adr/0009), so it is cheap
   // enough to do unconditionally.
   const session = await auth();
+  console.log(`[generate:timing] auth() resolved at +${Date.now() - t0}ms`);
 
   // Last gate before anything costs money. Deliberately after validation and the
   // turn check — a malformed or out-of-turn request never reaches a provider, so
   // spending a token on it would only punish a buggy client.
   const limited = await guardGenerate(request, session?.user?.id);
+  console.log(`[generate:timing] guardGenerate resolved at +${Date.now() - t0}ms`);
   if (limited) return limited;
 
   // Write-through persistence: only for logged-in Writers who've already saved this
@@ -131,8 +140,11 @@ export async function POST(request: Request) {
     // Pre-fetch the first chunk before committing to a streaming Response, so a bad
     // API key / invalid model / provider error surfaces as a clean 502 instead of a
     // broken 200 stream.
+    console.log(`[generate:timing] iterator.next() (first chunk) starting at +${Date.now() - t0}ms`);
     first = await iterator.next();
+    console.log(`[generate:timing] iterator.next() (first chunk) resolved at +${Date.now() - t0}ms`);
   } catch (err) {
+    console.log(`[generate:timing] iterator.next() (first chunk) threw at +${Date.now() - t0}ms`);
     console.error(`[generate] ${provider.id} failed before first chunk:`, err);
     return Response.json({ error: "Generation failed to start" }, { status: 502 });
   }
@@ -216,6 +228,7 @@ export async function POST(request: Request) {
     },
   });
 
+  console.log(`[generate:timing] returning Response at +${Date.now() - t0}ms`);
   return new Response(stream, {
     headers: { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store" },
   });
