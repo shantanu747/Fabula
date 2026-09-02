@@ -149,9 +149,31 @@ export function StoryProvider({
   function runGeneration(retryCount: number, storySoFarOverride?: StoryParagraph[], storyId?: string) {
     if (retryCount === 0 && state.generation.kind === "streaming") return;
 
+    // TEMPORARY (remove once the guest-write CI flake is diagnosed — see
+    // ADR 0021 and the [generate:timing] server-side logs in route.ts):
+    // network-trace evidence from a failing CI run showed a /api/generate
+    // fetch that completed successfully server-side (confirmed by matching
+    // x-request-id) but was aborted client-side (net::ERR_ABORTED) right as
+    // its response arrived. abortRef.current?.abort() below is the only
+    // place this codebase ever calls .abort() on that fetch's controller —
+    // it only does anything when a *second* runGeneration call arrives while
+    // a first is still in flight. This logs exactly that: whether it happens
+    // at all for a fresh guest story, and via the stack, which caller fired
+    // the second call. Captured in Playwright's trace (retain-on-failure)
+    // under the trace viewer's Console tab on the next failing run.
+    if (abortRef.current) {
+      console.warn(
+        `[runGeneration:diag] aborting a live request — retryCount=${retryCount}`,
+        new Error("call site").stack
+      );
+    }
     abortRef.current?.abort();
     const controller = new AbortController();
     abortRef.current = controller;
+    console.log(
+      `[runGeneration:diag] starting — retryCount=${retryCount}`,
+      new Error("call site").stack
+    );
 
     dispatch({ type: "GENERATION_START" });
 
