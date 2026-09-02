@@ -27,7 +27,7 @@ function installFake(options: { chunks?: string[]; beforeReturn?: () => Promise<
       // Lets a spec hold every in-flight generation open until they have all
       // reached the same point, so their persistence genuinely overlaps.
       if (beforeReturn) await beforeReturn();
-      return undefined;
+      return { model: "fake-model" };
     },
   };
   PROVIDERS[FAKE_ID] = provider;

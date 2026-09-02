@@ -134,7 +134,7 @@ export async function replayFixture(
   for (;;) {
     const { value, done } = await iterator.next();
     if (done) {
-      metadata = value;
+      metadata = value.invented;
       break;
     }
     prose += value;

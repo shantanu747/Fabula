@@ -42,7 +42,7 @@ export default defineConfig({
         // are held at 100%, while the route handlers include provider/network
         // error paths that cost more to reach than they are worth.
         "src/lib/story/**": { statements: 100, branches: 100, functions: 100, lines: 100 },
-        "src/lib/providers/{prompt,registry,list,constants,types}.ts": {
+        "src/lib/providers/{prompt,registry,list,constants,types,pricing}.ts": {
           statements: 100,
           branches: 100,
           functions: 100,
@@ -50,7 +50,13 @@ export default defineConfig({
         },
         "src/lib/db/**": { statements: 90, branches: 85, functions: 90, lines: 90 },
         "src/lib/ratelimit/**": { statements: 100, branches: 100, functions: 100, lines: 100 },
+        // logger.ts's redaction allowlist and requestId.ts's header validation are
+        // both structural safety guarantees (never log story text; never echo an
+        // unvalidated header into a log line) rather than ordinary route glue, so
+        // this sits at the same tier as the other safety-critical libraries above.
+        "src/lib/observability/**": { statements: 100, branches: 100, functions: 100, lines: 100 },
         "src/app/api/generate/**": { statements: 90, branches: 85, functions: 90, lines: 90 },
+        "src/app/api/health/**": { statements: 90, branches: 85, functions: 90, lines: 90 },
       },
     },
   },

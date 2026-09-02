@@ -3,6 +3,7 @@ import {
   clientIp,
   GENERATE_GUEST,
   GENERATE_USER,
+  HEALTH,
   REGISTER,
   type RateLimitPolicy,
 } from "./policy";
@@ -15,7 +16,8 @@ import { consumeToken, tooManyRequests } from "./store";
 async function apply(
   policy: RateLimitPolicy,
   identity: string,
-  message: string
+  message: string,
+  options: { failOpen?: boolean } = {}
 ): Promise<Response | null> {
   // No database configured means no shared counter to keep. This is the local
   // "clone it and try the guest flow" case; every deployed environment has one.
@@ -30,13 +32,15 @@ async function apply(
   try {
     result = await consumeToken(getDb(), policy, identity);
   } catch (err) {
-    // Fail closed. The limiter's whole job is to bound what an unauthenticated
-    // caller can spend on provider tokens, and failing open would hand that
-    // budget to anyone who can make the database unhappy. The cost of this
-    // choice is real and worth stating: a database outage stops generation for
-    // guests, who would otherwise have been unaffected by one. Bounded spend is
-    // the property worth keeping — see docs/adr/0015.
-    console.error(`[ratelimit] ${policy.scope} check failed; denying:`, err);
+    console.error(`[ratelimit] ${policy.scope} check failed:`, err);
+    // Fail open only where that's explicitly requested (health) — see guardHealth.
+    // Everywhere else, fail closed: the limiter's whole job is to bound what an
+    // unauthenticated caller can spend on provider tokens, and failing open would
+    // hand that budget to anyone who can make the database unhappy. The cost of
+    // this choice is real and worth stating: a database outage stops generation
+    // for guests, who would otherwise have been unaffected by one. Bounded spend
+    // is the property worth keeping — see docs/adr/0015.
+    if (options.failOpen) return null;
     return tooManyRequests({ retryAfterSeconds: 5 }, "Too busy right now. Try again in a moment.");
   }
 
@@ -66,4 +70,18 @@ export function guardGenerate(request: Request, userId: string | undefined): Pro
 
 export function guardRegister(request: Request): Promise<Response | null> {
   return apply(REGISTER, clientIp(request), "Too many sign-up attempts. Try again shortly.");
+}
+
+/**
+ * failOpen: true, deliberately unlike every other caller of apply(). A health
+ * endpoint that fails closed when its own rate-limit check can't reach the
+ * database would return 429 during exactly the outage it exists to report —
+ * masking a real "database: unreachable" behind a generic "too busy". There's
+ * no meaningful budget to protect here the way there is for a paid generation
+ * call, so availability wins over strict limiting on this one path.
+ */
+export function guardHealth(request: Request): Promise<Response | null> {
+  return apply(HEALTH, clientIp(request), "Too many health checks from this address.", {
+    failOpen: true,
+  });
 }

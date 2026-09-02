@@ -40,6 +40,20 @@ export const GENERATE_USER: RateLimitPolicy = {
 };
 
 /**
+ * `/api/health` is unauthenticated by design (it has to work when auth is
+ * broken) and does one bounded `SELECT 1`, so it's cheap — but still not free,
+ * and unauthenticated + no per-caller identity beyond IP is exactly the shape
+ * worth capping against a monitoring misconfiguration or a scripted hammer.
+ * Generous relative to GENERATE_GUEST since legitimate uptime monitors poll
+ * every few seconds from a small number of source IPs.
+ */
+export const HEALTH: RateLimitPolicy = {
+  scope: "health",
+  capacity: 30,
+  refillPerSecond: 1,
+};
+
+/**
  * Registration is cheap to serve but attractive to automate. ADR 0011 closed the
  * response and timing enumeration channels here and noted that, without a rate
  * limit, an attacker with unlimited attempts retains other avenues. This is that
