@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { __setDbForTests } from "@/lib/db/client";
 import type { AppDatabase } from "@/lib/db/types";
-import { guardGenerate, guardRegister } from "./guard";
+import { guardGenerate, guardHealth, guardRegister } from "./guard";
 
 /**
  * How the guard behaves when the database is unavailable or unhappy. Both are
@@ -34,6 +34,7 @@ describe("with no database configured", () => {
     ["a guest generation", () => guardGenerate(request(), undefined)],
     ["a signed-in generation", () => guardGenerate(request(), "user-1")],
     ["a registration", () => guardRegister(request())],
+    ["a health check", () => guardHealth(request())],
   ])("allows %s and says so", async (_label, guard) => {
     // Guest writing has never required a database (docs/adr/0009), and rate
     // limiting must not quietly make Postgres a hard requirement for running
@@ -80,5 +81,12 @@ describe("when the bucket query fails", () => {
     await expect(response?.json()).resolves.toEqual({
       error: "Too busy right now. Try again in a moment.",
     });
+  });
+
+  it("still lets a health check through — failing closed here would hide the outage behind a generic 429", async () => {
+    installFailingDb();
+    vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await expect(guardHealth(request())).resolves.toBeNull();
   });
 });

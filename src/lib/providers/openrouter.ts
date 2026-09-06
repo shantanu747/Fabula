@@ -1,6 +1,6 @@
 import OpenAI from "openai";
 import { buildMessages, buildSystemPrompt, generateWithProvider } from "./prompt";
-import type { GenerateParagraphInput, LLMProvider } from "./types";
+import type { GenerateParagraphInput, LLMProvider, ProviderTurnInfo } from "./types";
 
 // Verified live via openrouter.ai/docs — 131K context, $0.10/$0.32 per MTok.
 const OPENROUTER_MODEL = "meta-llama/llama-3.3-70b-instruct";
@@ -32,24 +32,50 @@ function getClient(): OpenAI {
   return client;
 }
 
+// Set once a response has completed with no usage chunk, so the console gets one
+// diagnostic instead of one per request — see the `usage: undefined` fallback below.
+let warnedMissingUsage = false;
+
 async function* rawOpenRouterTextStream(
   input: GenerateParagraphInput,
   trueCount: number
-): AsyncGenerator<string> {
+): AsyncGenerator<string, ProviderTurnInfo, unknown> {
   const stream = await getClient().chat.completions.create({
     model: OPENROUTER_MODEL,
     max_tokens: input.maxOutputTokens,
     stream: true,
+    // Not every OpenRouter upstream honours this — see the fallback below, which
+    // never fabricates a usage number if the provider doesn't return one.
+    stream_options: { include_usage: true },
     messages: [
       { role: "system", content: buildSystemPrompt() },
       ...buildMessages(input, trueCount),
     ],
   });
 
+  let model = OPENROUTER_MODEL;
+  let usage: ProviderTurnInfo["usage"];
   for await (const chunk of stream) {
+    if (chunk.model) model = chunk.model;
     const delta = chunk.choices[0]?.delta?.content;
     if (delta) yield delta;
+    if (chunk.usage) {
+      usage = {
+        inputTokens: chunk.usage.prompt_tokens,
+        outputTokens: chunk.usage.completion_tokens,
+      };
+    }
   }
+
+  if (usage === undefined && !warnedMissingUsage) {
+    warnedMissingUsage = true;
+    console.warn(
+      "[openrouter] no token usage in the stream despite stream_options.include_usage — " +
+        "cost/usage attributes will be omitted for this provider until it's supported upstream."
+    );
+  }
+
+  return { model, usage };
 }
 
 export const openrouterProvider: LLMProvider = {

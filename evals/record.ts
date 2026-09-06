@@ -56,7 +56,7 @@ async function extractProse(caseDef: EvalCase, chunks: string[]): Promise<{ pros
   for (;;) {
     const { value, done } = await iterator.next();
     if (done) {
-      metadata = value;
+      metadata = value.metadata;
       break;
     }
     prose += value;

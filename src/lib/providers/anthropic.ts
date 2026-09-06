@@ -1,6 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { buildMessages, buildSystemPrompt, generateWithProvider } from "./prompt";
-import type { GenerateParagraphInput, LLMProvider } from "./types";
+import type { GenerateParagraphInput, LLMProvider, ProviderTurnInfo } from "./types";
 
 // Balanced cost/quality pick for short-paragraph generation (not deep reasoning) —
 // see the milestone plan for the Sonnet-vs-Opus-vs-Haiku tradeoff.
@@ -28,7 +28,7 @@ function getClient(): Anthropic {
 async function* rawAnthropicTextStream(
   input: GenerateParagraphInput,
   trueCount: number
-): AsyncGenerator<string> {
+): AsyncGenerator<string, ProviderTurnInfo, unknown> {
   const stream = getClient().messages.stream({
     model: ANTHROPIC_MODEL,
     max_tokens: input.maxOutputTokens,
@@ -50,6 +50,14 @@ async function* rawAnthropicTextStream(
   if (final.stop_reason === "refusal") {
     throw new Error("anthropic: generation refused by safety classifier");
   }
+
+  return {
+    model: final.model,
+    usage: {
+      inputTokens: final.usage.input_tokens,
+      outputTokens: final.usage.output_tokens,
+    },
+  };
 }
 
 export const anthropicProvider: LLMProvider = {

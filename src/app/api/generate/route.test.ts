@@ -1,4 +1,7 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { SpanStatusCode, trace } from "@opentelemetry/api";
+import { BasicTracerProvider, InMemorySpanExporter, SimpleSpanProcessor } from "@opentelemetry/sdk-trace-base";
+import { estimateCostUsd } from "@/lib/providers/pricing";
 
 // The route imports `auth` at module scope even though the guest path never
 // calls it, and next-auth's module graph does not load outside a Next runtime.
@@ -19,7 +22,12 @@ import { POST } from "./route";
 import { __setDbForTests } from "@/lib/db/client";
 import { PROVIDERS } from "@/lib/providers/registry";
 import { MAX_OUTPUT_TOKENS } from "@/lib/providers/constants";
-import type { GenerateParagraphInput, InventedMetadata, LLMProvider } from "@/lib/providers/types";
+import type {
+  GenerateParagraphInput,
+  InventedMetadata,
+  LLMProvider,
+  TokenUsage,
+} from "@/lib/providers/types";
 
 /**
  * The guest path end to end, with a fake provider standing in for the LLM.
@@ -36,6 +44,8 @@ const SENTINEL = "\n FABULA:METADATA ";
 interface FakeOptions {
   chunks?: string[];
   metadata?: InventedMetadata;
+  usage?: TokenUsage;
+  model?: string;
   /** Throw before yielding anything — a bad API key or an invalid model. */
   throwBeforeFirstChunk?: boolean;
   /** Throw after yielding — a connection dropped mid-generation. */
@@ -46,7 +56,14 @@ let lastInput: GenerateParagraphInput | undefined;
 let returnCalled = false;
 
 function installFake(options: FakeOptions = {}): LLMProvider {
-  const { chunks = ["Once upon a time."], metadata, throwBeforeFirstChunk, throwAfterChunks } = options;
+  const {
+    chunks = ["Once upon a time."],
+    metadata,
+    usage,
+    model = "fake-model",
+    throwBeforeFirstChunk,
+    throwAfterChunks,
+  } = options;
 
   const provider: LLMProvider = {
     id: FAKE_ID,
@@ -57,7 +74,7 @@ function installFake(options: FakeOptions = {}): LLMProvider {
       try {
         for (const chunk of chunks) yield chunk;
         if (throwAfterChunks) throw new Error("connection reset");
-        return metadata;
+        return { invented: metadata, usage, model };
       } finally {
         // Records that the route disposed of the generator on cancel.
         returnCalled = true;
@@ -97,6 +114,11 @@ beforeEach(() => {
   originalDatabaseUrl = process.env.DATABASE_URL;
   delete process.env.DATABASE_URL;
   __setDbForTests(undefined);
+  // The structured logger (src/lib/observability/logger.ts) writes every level
+  // through console.log, not console.error/warn/info — silence it here so
+  // individual tests don't each need their own mock, matching the existing
+  // per-test console.error/info mocks below for the same reason.
+  vi.spyOn(console, "log").mockImplementation(() => {});
 });
 
 afterEach(() => {
@@ -287,5 +309,101 @@ describe("POST /api/generate — provider failures", () => {
     await reader.cancel("writer navigated away");
 
     expect(returnCalled).toBe(true);
+  });
+});
+
+describe("POST /api/generate — OTel spans", () => {
+  // route.ts's module-scope `tracer` is a ProxyTracer (see @opentelemetry/api)
+  // that resolves its real delegate lazily on first .startSpan() call, so
+  // registering the provider here — after route.ts was already imported above
+  // — still works: nothing calls .startSpan() until a test actually POSTs.
+  let exporter: InMemorySpanExporter;
+  let provider: BasicTracerProvider;
+
+  beforeAll(() => {
+    exporter = new InMemorySpanExporter();
+    provider = new BasicTracerProvider({ spanProcessors: [new SimpleSpanProcessor(exporter)] });
+    trace.setGlobalTracerProvider(provider);
+  });
+
+  afterAll(async () => {
+    await provider.shutdown();
+    trace.disable();
+  });
+
+  beforeEach(() => {
+    exporter.reset();
+  });
+
+  it("ends exactly one span on success, with usage/cost/ttft/total attributes", async () => {
+    const usage = { inputTokens: 10, outputTokens: 5 };
+    installFake({ chunks: ["Hello ", "world."], usage, model: "claude-sonnet-5" });
+
+    const response = await POST(post(validBody()));
+    await response.text();
+
+    const spans = exporter.getFinishedSpans();
+    expect(spans).toHaveLength(1);
+    const span = spans[0];
+    expect(span.name).toBe("fabula.generate");
+    expect(span.status.code).not.toBe(SpanStatusCode.ERROR);
+    expect(span.attributes["fabula.outcome"]).toBe("success");
+    expect(span.attributes["gen_ai.system"]).toBe(FAKE_ID);
+    expect(span.attributes["gen_ai.request.model"]).toBe("claude-sonnet-5");
+    expect(span.attributes["gen_ai.usage.input_tokens"]).toBe(10);
+    expect(span.attributes["gen_ai.usage.output_tokens"]).toBe(5);
+    expect(span.attributes["fabula.cost_usd"]).toBeCloseTo(estimateCostUsd("claude-sonnet-5", usage)!, 10);
+    expect(typeof span.attributes["fabula.ttft_ms"]).toBe("number");
+    expect(typeof span.attributes["fabula.total_ms"]).toBe("number");
+    expect(span.attributes["fabula.authenticated"]).toBe(false);
+  });
+
+  it("never puts story prose in a span attribute", async () => {
+    const secretProse = "The dragon's secret name was Zylathorn.";
+    installFake({ chunks: [secretProse], usage: { inputTokens: 1, outputTokens: 1 } });
+
+    const response = await POST(post(validBody()));
+    await response.text();
+
+    const [span] = exporter.getFinishedSpans();
+    expect(JSON.stringify(span.attributes)).not.toContain(secretProse);
+    expect(JSON.stringify(span.attributes)).not.toContain("dragon");
+  });
+
+  it("ends exactly one span, with ERROR status, on a provider error before the first chunk", async () => {
+    installFake({ throwBeforeFirstChunk: true });
+
+    await POST(post(validBody()));
+
+    const spans = exporter.getFinishedSpans();
+    expect(spans).toHaveLength(1);
+    expect(spans[0].attributes["fabula.outcome"]).toBe("provider_error");
+    expect(spans[0].status.code).toBe(SpanStatusCode.ERROR);
+  });
+
+  it("ends exactly one span, with ERROR status, on a mid-stream provider error", async () => {
+    installFake({ chunks: ["The story begins"], throwAfterChunks: true });
+
+    const response = await POST(post(validBody()));
+    await expect(response.text()).rejects.toThrow();
+
+    const spans = exporter.getFinishedSpans();
+    expect(spans).toHaveLength(1);
+    expect(spans[0].attributes["fabula.outcome"]).toBe("provider_error");
+    expect(spans[0].status.code).toBe(SpanStatusCode.ERROR);
+  });
+
+  it("ends exactly one span on cancellation", async () => {
+    installFake({ chunks: ["one", "two", "three", "four"] });
+
+    const response = await POST(post(validBody()));
+    const reader = response.body!.getReader();
+    await reader.read();
+    await reader.cancel("writer navigated away");
+
+    const spans = exporter.getFinishedSpans();
+    expect(spans).toHaveLength(1);
+    expect(spans[0].attributes["fabula.outcome"]).toBe("cancelled");
+    expect(spans[0].attributes["fabula.persisted"]).toBe(false);
   });
 });

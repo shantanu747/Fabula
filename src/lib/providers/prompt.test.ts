@@ -225,11 +225,12 @@ describe("generateWithProvider", () => {
   async function collect(input: GenerateParagraphInput, raw: string[]) {
     const generator = generateWithProvider(input, async function* () {
       for (const chunk of raw) yield chunk;
+      return { model: "fake-model", usage: { inputTokens: 1, outputTokens: 1 } };
     });
     let prose = "";
     for (;;) {
       const step = await generator.next();
-      if (step.done) return { prose, metadata: step.value };
+      if (step.done) return { prose, metadata: step.value.invented };
       prose += step.value;
     }
   }
@@ -265,6 +266,7 @@ describe("generateWithProvider", () => {
         received = windowed;
         receivedCount = trueCount;
         yield "text";
+        return { model: "fake-model" };
       }
     );
     await generator.next();

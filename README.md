@@ -107,6 +107,26 @@ This is worth the setup: the test suite runs on `node-postgres`, and this is the
 only way to exercise the driver that production actually uses. See
 [`docs/adr/0014`](docs/adr/0014-test-infrastructure-and-driver-parity.md).
 
+### Observability locally
+
+Traces export over standard OTLP env vars — no code change to point at a
+different backend, and unset means instrumentation is a no-op. To see a real
+trace locally:
+
+```bash
+docker run -d --name fabula-jaeger -p 16686:16686 -p 4318:4318 \
+  jaegertracing/all-in-one:latest
+OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 npm run dev
+# then write a paragraph and open http://localhost:16686
+```
+
+A `fabula.generate` span should appear per generation, with provider/model,
+token counts, TTFT, total duration, and estimated cost as attributes — never
+prose, a theme, a character list, an email, or an IP (see
+[`docs/adr/0022`](docs/adr/0022-observability-and-cost-accounting.md)).
+`GET /api/health` reports app, database, and provider-key-configuration
+status, and is unauthenticated by design so it still works if auth is broken.
+
 ## Project layout
 
 See [`docs/architecture.md`](docs/architecture.md#directory-layout) for the full annotated tree. Broad strokes:

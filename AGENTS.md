@@ -38,16 +38,28 @@ The app must remain model-agnostic. All provider calls go through a single inter
 
 ```ts
 // src/lib/providers/types.ts
+interface TokenUsage {
+  inputTokens: number
+  outputTokens: number
+}
+
+interface GenerationResult {
+  invented?: InventedMetadata // UC-3's invented theme/characters
+  usage?: TokenUsage // absent when a provider doesn't report usage — never fabricated
+  model: string // the concrete model id the adapter used
+}
+
 interface LLMProvider {
   id: string // 'anthropic' | 'openai' | 'openrouter' | ...
   displayName: string
   // AsyncGenerator<string, ...> is a strict superset of AsyncIterable<string> — for-await-of
-  // consumers see no difference. The return value carries the AI's invented theme/characters
-  // (UC-3's "separate tag" requirement) for the one consumer (the API route) that drives the
-  // generator manually via .next() instead of for-await-of.
+  // consumers see no difference. The return value carries invented metadata plus token
+  // usage/model (observability and cost accounting, docs/adr/0022) out of band, for the one
+  // consumer (the API route) that drives the generator manually via .next() instead of
+  // for-await-of — which discards a generator's return value.
   generateParagraph(
     input: GenerateParagraphInput
-  ): AsyncGenerator<string, InventedMetadata | undefined, unknown> // streamed chunks
+  ): AsyncGenerator<string, GenerationResult, unknown> // streamed chunks
 }
 ```
 
