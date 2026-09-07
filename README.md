@@ -138,6 +138,7 @@ src/
                          # handlers/components ever call for AI generation)
   lib/story/             # Client story state (StoryContext), shared server-side validation
   lib/db/                  # Drizzle schema, client, migrations
-  auth.ts, proxy.ts          # Auth.js config, route protection
+  auth.ts, proxy.ts          # Auth.js config, route protection, nonce-based CSP + security headers
+  lib/security/                # CSP policy string builder (src/proxy.ts is the only caller)
 docs/                         # PRD, use cases, architecture, ADRs
 ```
