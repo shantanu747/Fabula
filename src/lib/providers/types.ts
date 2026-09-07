@@ -22,6 +22,11 @@ export interface GenerateParagraphInput {
   targetLength?: number;
   /** Required so no call site can silently skip the per-request cost cap (PRD §7). */
   maxOutputTokens: number;
+  /** Wired into the underlying SDK call's request options so the route can
+   *  actually cancel a stalled or abandoned provider call (docs/adr/0023).
+   *  Optional: call sites with nothing to cancel against (evals, replay)
+   *  simply omit it and get today's uncancellable behavior. */
+  signal?: AbortSignal;
 }
 
 export interface InventedMetadata {

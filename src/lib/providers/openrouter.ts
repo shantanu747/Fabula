@@ -40,18 +40,21 @@ async function* rawOpenRouterTextStream(
   input: GenerateParagraphInput,
   trueCount: number
 ): AsyncGenerator<string, ProviderTurnInfo, unknown> {
-  const stream = await getClient().chat.completions.create({
-    model: OPENROUTER_MODEL,
-    max_tokens: input.maxOutputTokens,
-    stream: true,
-    // Not every OpenRouter upstream honours this — see the fallback below, which
-    // never fabricates a usage number if the provider doesn't return one.
-    stream_options: { include_usage: true },
-    messages: [
-      { role: "system", content: buildSystemPrompt() },
-      ...buildMessages(input, trueCount),
-    ],
-  });
+  const stream = await getClient().chat.completions.create(
+    {
+      model: OPENROUTER_MODEL,
+      max_tokens: input.maxOutputTokens,
+      stream: true,
+      // Not every OpenRouter upstream honours this — see the fallback below, which
+      // never fabricates a usage number if the provider doesn't return one.
+      stream_options: { include_usage: true },
+      messages: [
+        { role: "system", content: buildSystemPrompt() },
+        ...buildMessages(input, trueCount),
+      ],
+    },
+    { signal: input.signal }
+  );
 
   let model = OPENROUTER_MODEL;
   let usage: ProviderTurnInfo["usage"];

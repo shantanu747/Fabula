@@ -29,16 +29,19 @@ async function* rawAnthropicTextStream(
   input: GenerateParagraphInput,
   trueCount: number
 ): AsyncGenerator<string, ProviderTurnInfo, unknown> {
-  const stream = getClient().messages.stream({
-    model: ANTHROPIC_MODEL,
-    max_tokens: input.maxOutputTokens,
-    // Adaptive thinking is on by default for this model; disabling it means
-    // max_tokens caps prose only, avoiding a paragraph truncating mid-sentence
-    // because the budget was spent on reasoning instead.
-    thinking: { type: "disabled" },
-    system: buildSystemPrompt(),
-    messages: buildMessages(input, trueCount),
-  });
+  const stream = getClient().messages.stream(
+    {
+      model: ANTHROPIC_MODEL,
+      max_tokens: input.maxOutputTokens,
+      // Adaptive thinking is on by default for this model; disabling it means
+      // max_tokens caps prose only, avoiding a paragraph truncating mid-sentence
+      // because the budget was spent on reasoning instead.
+      thinking: { type: "disabled" },
+      system: buildSystemPrompt(),
+      messages: buildMessages(input, trueCount),
+    },
+    { signal: input.signal }
+  );
 
   for await (const event of stream) {
     if (event.type === "content_block_delta" && event.delta.type === "text_delta") {

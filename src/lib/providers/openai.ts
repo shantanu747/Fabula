@@ -30,24 +30,27 @@ async function* rawOpenAITextStream(
   input: GenerateParagraphInput,
   trueCount: number
 ): AsyncGenerator<string, ProviderTurnInfo, unknown> {
-  const stream = await getClient().chat.completions.create({
-    model: OPENAI_MODEL,
-    max_completion_tokens: input.maxOutputTokens,
-    // Reasoning tokens count against max_completion_tokens. Without this,
-    // gpt-5-mini's default reasoning can exhaust the whole 600-token budget
-    // and return an empty completion (finish_reason "length") — verified live
-    // during eval seeding (2026-08-30). "low" keeps prose within the cap.
-    reasoning_effort: "low",
-    stream: true,
-    // The usage-bearing chunk arrives last, with an empty `choices` array — the
-    // loop below already skips it safely (no delta to yield), so this is a pure
-    // addition that costs nothing on the happy path.
-    stream_options: { include_usage: true },
-    messages: [
-      { role: "system", content: buildSystemPrompt() },
-      ...buildMessages(input, trueCount),
-    ],
-  });
+  const stream = await getClient().chat.completions.create(
+    {
+      model: OPENAI_MODEL,
+      max_completion_tokens: input.maxOutputTokens,
+      // Reasoning tokens count against max_completion_tokens. Without this,
+      // gpt-5-mini's default reasoning can exhaust the whole 600-token budget
+      // and return an empty completion (finish_reason "length") — verified live
+      // during eval seeding (2026-08-30). "low" keeps prose within the cap.
+      reasoning_effort: "low",
+      stream: true,
+      // The usage-bearing chunk arrives last, with an empty `choices` array — the
+      // loop below already skips it safely (no delta to yield), so this is a pure
+      // addition that costs nothing on the happy path.
+      stream_options: { include_usage: true },
+      messages: [
+        { role: "system", content: buildSystemPrompt() },
+        ...buildMessages(input, trueCount),
+      ],
+    },
+    { signal: input.signal }
+  );
 
   let model = OPENAI_MODEL;
   let usage: ProviderTurnInfo["usage"];
