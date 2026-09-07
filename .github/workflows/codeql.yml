@@ -1,0 +1,32 @@
+name: CodeQL
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    # Catches new advisories against code that hasn't changed recently — a
+    # push/PR-only trigger would never re-scan a stable file for a query
+    # added to CodeQL's own ruleset after it last touched this repo.
+    - cron: "17 3 * * 1"
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      # Default query suite, not security-extended: the CodeQL CLI isn't
+      # available in this dev environment to benchmark the two locally, so
+      # this starts from GitHub's own documented default rather than a
+      # verified measurement. Revisit if the first real run on `main` is slow
+      # or noisy, or once security-extended can actually be compared against
+      # it — see docs/adr/0024.
+      - uses: github/codeql-action/init@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4.37.9
+        with:
+          languages: javascript-typescript
+
+      - uses: github/codeql-action/analyze@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4.37.9
