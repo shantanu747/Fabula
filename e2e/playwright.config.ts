@@ -29,7 +29,11 @@ export default defineConfig({
     // machine absorbs that easily; GitHub's shared ubuntu-latest runners
     // (2 vCPU) don't always. See ADR 0020 for how this was diagnosed
     // (and what it isn't — a connection-pool race, ruled out by soak
-    // test) and `npm run test:e2e:soak` for re-verifying it.
+    // test) and `npm run test:e2e:soak` for re-verifying it. This headroom
+    // is unrelated to the guest-write.spec.ts flake ADR 0020/0021 also
+    // chased — that turned out to be a client-side fetch abort, fixed at
+    // the source in ADR 0025, not a timing issue this budget could paper
+    // over.
     timeout: process.env.CI ? 15_000 : 5_000,
   },
 
@@ -49,14 +53,6 @@ export default defineConfig({
     reuseExistingServer: !process.env.CI,
     timeout: 180_000,
     cwd: "..",
-    // TEMPORARY, alongside the [generate:timing] console.log lines in
-    // src/app/api/generate/route.ts (see ADR 0021): webServer only pipes
-    // stderr by default, which is why every [WebServer] line seen in CI so
-    // far has been a console.error — both those diagnostics and the app's own
-    // structured logger (src/lib/observability/logger.ts) use console.log for
-    // info/warn levels, and would otherwise be silently dropped from CI's
-    // output. Remove this once the timing diagnostics above are removed.
-    stdout: "pipe",
     env: {
       // All three point at the same mock (docs/adr/0019's "the seam is the
       // provider's base URL" applies uniformly) — Plan 4's provider-failover
