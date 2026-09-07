@@ -5,14 +5,23 @@ export type GenerationErrorKind =
   | "bad-request" // 400
   | "turn-violation" // 409
   | "rate-limited" // 429
-  | "provider-failed" // 502
+  | "provider-failed" // 502 with no body, or a body with no `kind`
+  | "provider-unavailable" // 502 with kind: "provider-unavailable" — may carry a named alternative
   | "stream-aborted" // mid-stream controller.error()
   | "network"; // fetch threw / offline
 
 export type GenerationState =
   | { kind: "idle" }
   | { kind: "streaming"; text: string }
-  | { kind: "error"; message: string; errorKind: GenerationErrorKind };
+  | {
+      kind: "error";
+      message: string;
+      errorKind: GenerationErrorKind;
+      /** Set only for a "provider-unavailable" error — see streamGeneration.ts. */
+      failedProviderId?: string;
+      suggestedProviderId?: string;
+      suggestedProviderName?: string;
+    };
 
 export interface StoryState {
   theme: string;

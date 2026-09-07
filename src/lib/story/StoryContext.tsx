@@ -21,7 +21,14 @@ type Action =
   | { type: "GENERATION_START" }
   | { type: "GENERATION_CHUNK"; text: string }
   | { type: "GENERATION_DONE"; paragraph: StoryParagraph; invented?: InventedMetadata }
-  | { type: "GENERATION_ERROR"; message: string; errorKind: GenerationErrorKind }
+  | {
+      type: "GENERATION_ERROR";
+      message: string;
+      errorKind: GenerationErrorKind;
+      failedProviderId?: string;
+      suggestedProviderId?: string;
+      suggestedProviderName?: string;
+    }
   | { type: "WRITER_SUBMIT"; text: string }
   | { type: "RESET"; defaultProviderId: string }
   | { type: "SET_STORY_ID"; id: string }
@@ -64,7 +71,17 @@ function storyReducer(state: StoryState, action: Action): StoryState {
         generation: { kind: "idle" },
       };
     case "GENERATION_ERROR":
-      return { ...state, generation: { kind: "error", message: action.message, errorKind: action.errorKind } };
+      return {
+        ...state,
+        generation: {
+          kind: "error",
+          message: action.message,
+          errorKind: action.errorKind,
+          failedProviderId: action.failedProviderId,
+          suggestedProviderId: action.suggestedProviderId,
+          suggestedProviderName: action.suggestedProviderName,
+        },
+      };
     case "WRITER_SUBMIT":
       if (!action.text) return state;
       return { ...state, paragraphs: [...state.paragraphs, { author: "writer", text: action.text }] };
@@ -93,6 +110,12 @@ interface StoryContextValue extends StoryState {
    *  paragraph list straight into generation instead of relying on `state`,
    *  which wouldn't yet reflect the WRITER_SUBMIT dispatch on this same tick. */
   submitAndContinue: (text: string) => void;
+  /** Switches the AI provider for the rest of the session and immediately
+   *  regenerates the current turn with it — the "Use {provider}" action on a
+   *  provider-unavailable error banner (docs/adr/0023). Never rewrites a
+   *  saved story's default provider; only story_paragraph.providerId (set via
+   *  GENERATION_DONE) records who actually wrote a given paragraph. */
+  switchProviderAndRetry: (providerId: string) => void;
   resetStory: () => void;
   /** Replaces the entire story with a previously-saved one loaded from
    *  GET /api/stories/:id (see /library and /story?storyId=…). */
@@ -146,8 +169,20 @@ export function StoryProvider({
     }
   }
 
-  function runGeneration(retryCount: number, storySoFarOverride?: StoryParagraph[], storyId?: string) {
+  function runGeneration(
+    retryCount: number,
+    storySoFarOverride?: StoryParagraph[],
+    storyId?: string,
+    providerIdOverride?: string
+  ) {
     if (retryCount === 0 && state.generation.kind === "streaming") return;
+
+    // The stale-closure trap (docs/adr/0008, docs/adr/0023): reading
+    // state.selectedProviderId directly here would send the *old* provider
+    // when this is called immediately after dispatching SET_PROVIDER on the
+    // same tick (switchProviderAndRetry below) — the dispatch hasn't
+    // re-rendered yet, so the closure's `state` is still the previous one.
+    const providerId = providerIdOverride ?? state.selectedProviderId;
 
     // TEMPORARY (remove once the guest-write CI flake is diagnosed — see
     // ADR 0021 and the [generate:timing] server-side logs in route.ts):
@@ -179,7 +214,7 @@ export function StoryProvider({
 
     void streamGeneration(
       {
-        providerId: state.selectedProviderId,
+        providerId,
         storySoFar: storySoFarOverride ?? state.paragraphs,
         theme: state.theme || undefined,
         characters: state.characters || undefined,
@@ -193,17 +228,26 @@ export function StoryProvider({
         onDone: (text, metadata) =>
           dispatch({
             type: "GENERATION_DONE",
-            paragraph: { author: "ai", text, providerId: state.selectedProviderId },
+            paragraph: { author: "ai", text, providerId },
             invented: metadata,
           }),
         onError: (error) => {
           // Auto-retry once, silently, on a mid-stream drop — only surface the
-          // error banner if the retry attempt also fails.
+          // error banner if the retry attempt also fails. Rule 3 (docs/adr/0023):
+          // never offered as a provider switch, so this always retries the same
+          // providerId, never state.selectedProviderId.
           if (error.kind === "stream-aborted" && retryCount === 0) {
-            runGeneration(1, storySoFarOverride, storyId);
+            runGeneration(1, storySoFarOverride, storyId, providerId);
             return;
           }
-          dispatch({ type: "GENERATION_ERROR", message: error.message, errorKind: error.kind });
+          dispatch({
+            type: "GENERATION_ERROR",
+            message: error.message,
+            errorKind: error.kind,
+            failedProviderId: error.failedProviderId,
+            suggestedProviderId: error.suggestedProviderId,
+            suggestedProviderName: error.suggestedProviderName,
+          });
         },
       }
     );
@@ -227,6 +271,14 @@ export function StoryProvider({
       const updated: StoryParagraph[] = [...state.paragraphs, { author: "writer", text: trimmed }];
       dispatch({ type: "WRITER_SUBMIT", text: trimmed });
       void ensureStoryId().then((storyId) => runGeneration(0, updated, storyId));
+    },
+    switchProviderAndRetry: (providerId) => {
+      // Same stale-closure hazard as submitAndContinue (docs/adr/0008): pass
+      // providerId straight into runGeneration rather than dispatching
+      // SET_PROVIDER and reading state.selectedProviderId back, since the
+      // dispatch hasn't re-rendered (and refreshed the closure) yet.
+      dispatch({ type: "SET_PROVIDER", id: providerId });
+      void ensureStoryId().then((storyId) => runGeneration(0, undefined, storyId, providerId));
     },
     resetStory: () => {
       abortRef.current?.abort();

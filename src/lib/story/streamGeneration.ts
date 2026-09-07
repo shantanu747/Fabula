@@ -18,6 +18,10 @@ export interface GenerateRequestBody {
 export interface GenerationError {
   kind: GenerationErrorKind;
   message: string;
+  /** Only present for a "provider-unavailable" error (see route.ts's 502 body). */
+  failedProviderId?: string;
+  suggestedProviderId?: string;
+  suggestedProviderName?: string;
 }
 
 export interface StreamCallbacks {
@@ -56,13 +60,10 @@ export async function streamGeneration(
 
   if (!response.ok) {
     let message = `Request failed (${response.status}).`;
-    try {
-      const data = await response.json();
-      if (typeof data?.error === "string") message = data.error;
-    } catch {
-      // body wasn't JSON — keep the generic message
-    }
-    const kind: GenerationErrorKind =
+    // Status-derived fallback — the only outcome for a 502 with no body (or a
+    // non-JSON one), and the starting point `kind` below overrides once a
+    // real body is parsed.
+    let kind: GenerationErrorKind =
       response.status === 409
         ? "turn-violation"
         : response.status === 429
@@ -70,7 +71,20 @@ export async function streamGeneration(
           : response.status === 502
             ? "provider-failed"
             : "bad-request";
-    onError({ kind, message });
+    let failedProviderId: string | undefined;
+    let suggestedProviderId: string | undefined;
+    let suggestedProviderName: string | undefined;
+    try {
+      const data = await response.json();
+      if (typeof data?.error === "string") message = data.error;
+      if (typeof data?.kind === "string") kind = data.kind as GenerationErrorKind;
+      if (typeof data?.failedProviderId === "string") failedProviderId = data.failedProviderId;
+      if (typeof data?.suggestedProviderId === "string") suggestedProviderId = data.suggestedProviderId;
+      if (typeof data?.suggestedProviderName === "string") suggestedProviderName = data.suggestedProviderName;
+    } catch {
+      // body wasn't JSON — keep the generic message and the status-derived kind
+    }
+    onError({ kind, message, failedProviderId, suggestedProviderId, suggestedProviderName });
     return;
   }
 
