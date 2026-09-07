@@ -18,3 +18,11 @@ export const MAX_OUTPUT_TOKENS = 1500;
  * real context windows differ — crude but safe, not per-provider-tuned.
  */
 export const CONTEXT_WINDOW_CHAR_BUDGET = 12000;
+
+/** Budget for the provider to produce its first token. Beyond this the Writer is
+ *  staring at nothing, and a slow start rarely recovers into a fast stream. */
+export const FIRST_CHUNK_TIMEOUT_MS = 20_000;
+
+/** Max gap between chunks once streaming has begun. Generous — some models pause
+ *  mid-paragraph — but bounded, so a half-open connection cannot hang forever. */
+export const STREAM_IDLE_TIMEOUT_MS = 30_000;
