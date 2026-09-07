@@ -53,7 +53,19 @@ export async function streamGeneration(
       signal,
     });
   } catch (err) {
-    if (err instanceof Error && err.name === "AbortError") return;
+    // An AbortError here means *some* AbortController fired — but `signal.aborted`
+    // is only true when *this call's own* controller (abortRef in StoryContext) was
+    // the one aborted, i.e. a genuinely superseding call. A fetch the browser itself
+    // cancels (net::ERR_ABORTED — seen racing Next's own navigation-triggered
+    // requests, docs/adr/0026) throws the same AbortError shape without our signal
+    // ever having been touched, and was being silently swallowed here — leaving the
+    // UI stuck streaming forever with no error and nothing to recover it. Routing it
+    // through the existing stream-aborted retry path instead actually recovers.
+    if (signal.aborted) return;
+    if (err instanceof Error && err.name === "AbortError") {
+      onError({ kind: "stream-aborted", message: "Generation was interrupted before finishing." });
+      return;
+    }
     onError({ kind: "network", message: "Couldn't reach the server. Check your connection and try again." });
     return;
   }
@@ -130,8 +142,12 @@ export async function streamGeneration(
 
       if (done) break;
     }
-  } catch (err) {
-    if (err instanceof Error && err.name === "AbortError") return;
+  } catch {
+    // See the comment on the fetch() catch block above — same distinction applies
+    // to a mid-stream abort, and matters even more here: this is the shape a
+    // browser-cancelled /api/generate actually takes (headers already received,
+    // net::ERR_ABORTED during the body read), not the pre-response one.
+    if (signal.aborted) return;
     onError({ kind: "stream-aborted", message: "Generation was interrupted before finishing." });
     return;
   }

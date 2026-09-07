@@ -31,9 +31,9 @@ export default defineConfig({
     // (and what it isn't — a connection-pool race, ruled out by soak
     // test) and `npm run test:e2e:soak` for re-verifying it. This headroom
     // is unrelated to the guest-write.spec.ts flake ADR 0020/0021 also
-    // chased — that turned out to be a client-side fetch abort, fixed at
-    // the source in ADR 0025, not a timing issue this budget could paper
-    // over.
+    // chased — that turned out (ADR 0026, after two wrong theories) to be a
+    // React-paint-timing assertion needing real margin on the mock's own
+    // delayMs, not a budget this timeout could paper over.
     timeout: process.env.CI ? 15_000 : 5_000,
   },
 

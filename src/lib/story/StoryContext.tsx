@@ -104,24 +104,18 @@ interface StoryContextValue extends StoryState {
   setSelectedProviderId: (id: string) => void;
   setTargetLength: (value: number) => void;
   submitWriterParagraph: (text: string) => void;
-  /** Resolves once the generate request has actually been issued (not once it
-   *  completes) — see docs/adr/0025. A caller that also navigates right after
-   *  starting generation (src/app/page.tsx's handleStart) must await this
-   *  first, or the navigation can race the fetch and get it aborted. */
-  generateNext: () => Promise<void>;
+  generateNext: () => void;
   /** Submits `text` as the Writer's paragraph, then immediately generates the
    *  AI's reply — as one action, not two separate clicks. Passes the updated
    *  paragraph list straight into generation instead of relying on `state`,
-   *  which wouldn't yet reflect the WRITER_SUBMIT dispatch on this same tick.
-   *  Resolves once generation has been issued — see generateNext above. */
-  submitAndContinue: (text: string) => Promise<void>;
+   *  which wouldn't yet reflect the WRITER_SUBMIT dispatch on this same tick. */
+  submitAndContinue: (text: string) => void;
   /** Switches the AI provider for the rest of the session and immediately
    *  regenerates the current turn with it — the "Use {provider}" action on a
    *  provider-unavailable error banner (docs/adr/0023). Never rewrites a
    *  saved story's default provider; only story_paragraph.providerId (set via
-   *  GENERATION_DONE) records who actually wrote a given paragraph. Resolves
-   *  once generation has been issued — see generateNext above. */
-  switchProviderAndRetry: (providerId: string) => Promise<void>;
+   *  GENERATION_DONE) records who actually wrote a given paragraph. */
+  switchProviderAndRetry: (providerId: string) => void;
   resetStory: () => void;
   /** Replaces the entire story with a previously-saved one loaded from
    *  GET /api/stories/:id (see /library and /story?storyId=…). */
@@ -246,26 +240,23 @@ export function StoryProvider({
     setSelectedProviderId: (id) => dispatch({ type: "SET_PROVIDER", id }),
     setTargetLength: (value) => dispatch({ type: "SET_TARGET_LENGTH", value }),
     submitWriterParagraph: (text) => dispatch({ type: "WRITER_SUBMIT", text: text.trim() }),
-    generateNext: async () => {
-      const storyId = await ensureStoryId();
-      runGeneration(0, undefined, storyId);
+    generateNext: () => {
+      void ensureStoryId().then((storyId) => runGeneration(0, undefined, storyId));
     },
-    submitAndContinue: async (text) => {
+    submitAndContinue: (text) => {
       const trimmed = text.trim();
       if (!trimmed) return;
       const updated: StoryParagraph[] = [...state.paragraphs, { author: "writer", text: trimmed }];
       dispatch({ type: "WRITER_SUBMIT", text: trimmed });
-      const storyId = await ensureStoryId();
-      runGeneration(0, updated, storyId);
+      void ensureStoryId().then((storyId) => runGeneration(0, updated, storyId));
     },
-    switchProviderAndRetry: async (providerId) => {
+    switchProviderAndRetry: (providerId) => {
       // Same stale-closure hazard as submitAndContinue (docs/adr/0008): pass
       // providerId straight into runGeneration rather than dispatching
       // SET_PROVIDER and reading state.selectedProviderId back, since the
       // dispatch hasn't re-rendered (and refreshed the closure) yet.
       dispatch({ type: "SET_PROVIDER", id: providerId });
-      const storyId = await ensureStoryId();
-      runGeneration(0, undefined, storyId, providerId);
+      void ensureStoryId().then((storyId) => runGeneration(0, undefined, storyId, providerId));
     },
     resetStory: () => {
       abortRef.current?.abort();

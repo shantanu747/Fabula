@@ -47,18 +47,12 @@ export default function Home() {
 
   const isStreaming = generation.kind === "streaming";
 
-  async function handleStart() {
+  function handleStart() {
     if (isStreaming) return;
-    // Await generation kickoff before navigating (docs/adr/0025) — router.push
-    // below races the fetch that generateNext/submitAndContinue schedule; for a
-    // guest that fetch fires almost immediately (no server round trip first),
-    // and starting it after the navigation is underway got it aborted by the
-    // browser (net::ERR_ABORTED), which is what guest-write.spec.ts's CI flake
-    // actually was.
     if (openingLines.trim()) {
-      await submitAndContinue(openingLines);
+      submitAndContinue(openingLines);
     } else {
-      await generateNext();
+      generateNext();
     }
     router.push("/story");
   }
