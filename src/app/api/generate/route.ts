@@ -74,18 +74,6 @@ interface FinishArgs {
 }
 
 export async function POST(request: Request) {
-  // TEMPORARY (remove once ADR 0021's open question is answered): reinstated from
-  // commit c5c61c5 (reverted in 067e96b after one clean run proved nothing — see
-  // ADR 0021) now that the flake has recurred on this branch's own PR, twice.
-  // guest-write.spec.ts's first test intermittently sits stuck at the streaming
-  // attribution placeholder for the full 15s expect timeout in CI, then the
-  // paragraph is found fully complete — the generation finishes, just very late,
-  // invisibly to the browser (which renders "isStreaming" optimistically on
-  // submit, not on first byte). These timestamps exist to find out which await it
-  // is, instead of another guess from interleaved [WebServer] log text (the
-  // mistake ADR 0020 exists to stop repeating). Left in place — not reverted after
-  // a clean run — until CI actually reproduces the stall with these active.
-  const t0 = Date.now();
   const requestId = resolveRequestId(request);
 
   let body: unknown;
@@ -128,13 +116,11 @@ export async function POST(request: Request) {
   // enough to do unconditionally.
   const session = await auth();
   const authenticated = Boolean(session?.user?.id);
-  console.log(`[generate:timing] auth() resolved at +${Date.now() - t0}ms`); // TEMPORARY, see ADR 0021
 
   // Last gate before anything costs money. Deliberately after validation and the
   // turn check — a malformed or out-of-turn request never reaches a provider, so
   // spending a token on it would only punish a buggy client.
   const limited = await guardGenerate(request, session?.user?.id);
-  console.log(`[generate:timing] guardGenerate resolved at +${Date.now() - t0}ms`); // TEMPORARY, see ADR 0021
   if (limited) {
     log.warn(LOG_EVENTS.RATELIMIT_REJECTED, { requestId, providerId: input.providerId, authenticated });
     return withRequestId(limited, requestId);
@@ -314,13 +300,10 @@ export async function POST(request: Request) {
       // Pre-fetch the first chunk before committing to a streaming Response, so a bad
       // API key / invalid model / provider error surfaces as a clean 502 instead of a
       // broken 200 stream.
-      console.log(`[generate:timing] iterator.next() (first chunk) starting at +${Date.now() - t0}ms`); // TEMPORARY, see ADR 0021
       const first = await iterator.next();
-      console.log(`[generate:timing] iterator.next() (first chunk) resolved at +${Date.now() - t0}ms`); // TEMPORARY, see ADR 0021
       clearIdle();
       return { ok: true, iterator, first };
     } catch (err) {
-      console.log(`[generate:timing] iterator.next() (first chunk) threw at +${Date.now() - t0}ms`); // TEMPORARY, see ADR 0021
       clearIdle();
       return { ok: false, err };
     }
@@ -526,7 +509,6 @@ export async function POST(request: Request) {
     },
   });
 
-  console.log(`[generate:timing] returning Response at +${Date.now() - t0}ms`); // TEMPORARY, see ADR 0021
   return new Response(stream, {
     headers: {
       "Content-Type": "text/plain; charset=utf-8",

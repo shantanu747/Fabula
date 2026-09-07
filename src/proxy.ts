@@ -1,28 +1,59 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { auth } from "@/auth";
+import { buildCsp, cspHeaderName } from "@/lib/security/csp";
 
-// src/auth.ts configures NextAuth with a lazy config factory (deliberately —
-// see its comment on getAuthAdapterDb()), and under that form auth(handler)
-// — the middleware-wrapping overload, used only here — resolves to a Promise
-// of the wrapped handler rather than the handler itself. Every other call
-// site in the app uses the zero-argument `await auth()` session-read form,
-// where that makes no difference. Next.js requires proxy.ts to export a
-// plain function, not a Promise, so the promise is awaited inside one; it's
-// created once at module scope, so later requests await an already-settled
-// promise rather than re-invoking auth().
-const wrappedAuthProxy = auth((req) => {
-  if (!req.auth) {
-    const loginUrl = new URL("/login", req.url);
-    loginUrl.searchParams.set("callbackUrl", req.nextUrl.pathname);
-    return NextResponse.redirect(loginUrl);
+const PROTECTED_PREFIXES = ["/library", "/feed"];
+
+function isProtectedPath(pathname: string): boolean {
+  return PROTECTED_PREFIXES.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
+}
+
+function withSecurityHeaders(response: NextResponse, headerName: string, csp: string): NextResponse {
+  response.headers.set(headerName, csp);
+  return response;
+}
+
+export async function proxy(request: NextRequest) {
+  const nonce = crypto.randomUUID();
+  const isDev = process.env.NODE_ENV === "development";
+  const reportOnly = process.env.CSP_REPORT_ONLY === "true";
+  const csp = buildCsp({ nonce, isDev });
+  const headerName = cspHeaderName(reportOnly);
+
+  // A redirect must carry the same headers as any other response — the auth check runs
+  // first, on request headers alone, so it never needs the nonce/CSP that only the
+  // response side (and Next's own script rendering) cares about.
+  if (isProtectedPath(request.nextUrl.pathname)) {
+    const session = await auth();
+    if (!session) {
+      const loginUrl = new URL("/login", request.url);
+      loginUrl.searchParams.set("callbackUrl", request.nextUrl.pathname);
+      return withSecurityHeaders(NextResponse.redirect(loginUrl), headerName, csp);
+    }
   }
-});
 
-export async function proxy(request: NextRequest, ctx: Parameters<Awaited<typeof wrappedAuthProxy>>[1]) {
-  return (await wrappedAuthProxy)(request, ctx);
+  // Set on the request too, not just the response: Next reads the nonce back out of the
+  // request's own CSP header while rendering, to attach it to its framework/page scripts.
+  const requestHeaders = new Headers(request.headers);
+  requestHeaders.set("x-nonce", nonce);
+  requestHeaders.set(headerName, csp);
+
+  return withSecurityHeaders(
+    NextResponse.next({ request: { headers: requestHeaders } }),
+    headerName,
+    csp
+  );
 }
 
 export const config = {
-  matcher: ["/library/:path*", "/feed/:path*"],
+  matcher: [
+    {
+      source: "/((?!api|_next/static|_next/image|favicon.ico).*)",
+      missing: [
+        { type: "header", key: "next-router-prefetch" },
+        { type: "header", key: "purpose", value: "prefetch" },
+      ],
+    },
+  ],
 };

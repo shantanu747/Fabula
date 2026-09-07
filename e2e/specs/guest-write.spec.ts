@@ -13,8 +13,13 @@ test.beforeEach(async () => {
 test.describe("guest write journey", () => {
   test("the AI writes the opening paragraph, invents a theme, and is attributed by name", async ({ page }) => {
     await setMockScript(
+      // delayMs between chunks needs real margin, not just a nonzero value: the
+      // assertions below depend on a genuinely observable intermediate paint (first
+      // chunk visible, second not yet landed) surviving actual browser/CI scheduling
+      // jitter — see docs/adr/0026. 80ms wasn't a networking-realism choice, it was
+      // never given real margin in the first place.
       streamResponse(["The lighthouse had not blinked in ", "eleven years, and Mara noticed."], {
-        delayMs: 80,
+        delayMs: 400,
         invented: { theme: "a stubborn coastal mystery", characters: "Mara, a keeper's daughter" },
       })
     );

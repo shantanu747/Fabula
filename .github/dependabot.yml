@@ -1,0 +1,25 @@
+version: 2
+
+updates:
+  # Grouped rather than one PR per package: this repo's dependency count makes
+  # ungrouped Dependabot pure noise nobody reads. Patch/minor bumps are
+  # low-risk and safe to land together; majors get their own PR each since
+  # those are the ones actually worth reviewing individually.
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    groups:
+      dev-dependencies:
+        dependency-type: "development"
+        update-types: ["patch", "minor"]
+      production-dependencies:
+        dependency-type: "production"
+        update-types: ["patch", "minor"]
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
