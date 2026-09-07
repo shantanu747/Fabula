@@ -22,6 +22,7 @@ function StoryPage() {
     setTargetLength,
     submitAndContinue,
     generateNext,
+    switchProviderAndRetry,
     resetStory,
     hydrateStory,
   } = useStory();
@@ -176,13 +177,34 @@ function StoryPage() {
               limit (retrying now just fails again — the message says when).
             */}
             {generation.errorKind !== "turn-violation" && generation.errorKind !== "rate-limited" && (
-              <button
-                type="button"
-                onClick={() => generateNext()}
-                className="mt-3 rounded-xl border border-border px-4 py-2 text-xs font-medium text-foreground transition-colors hover:border-accent hover:text-accent"
-              >
-                Try again
-              </button>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {generation.errorKind === "provider-unavailable" && generation.suggestedProviderId ? (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => switchProviderAndRetry(generation.suggestedProviderId!)}
+                      className="tap-target rounded-xl bg-accent px-4 py-2 text-xs font-medium text-accent-foreground transition-opacity hover:opacity-90"
+                    >
+                      Use {generation.suggestedProviderName ?? "another provider"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => generateNext()}
+                      className="tap-target rounded-xl border border-border px-4 py-2 text-xs font-medium text-foreground transition-colors hover:border-accent hover:text-accent"
+                    >
+                      Try {providerDisplayName(generation.failedProviderId)} again
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => generateNext()}
+                    className="tap-target rounded-xl border border-border px-4 py-2 text-xs font-medium text-foreground transition-colors hover:border-accent hover:text-accent"
+                  >
+                    Try again
+                  </button>
+                )}
+              </div>
             )}
           </div>
         )}
