@@ -6,8 +6,8 @@ import { stories } from "@/lib/db/schema";
 import { insertAIParagraph, syncStoryParagraphs } from "@/lib/db/paragraphs";
 import { insertGenerationEvent } from "@/lib/db/generationEvents";
 import { guardGenerate } from "@/lib/ratelimit/guard";
-import { MAX_OUTPUT_TOKENS } from "@/lib/providers/constants";
-import { getProvider } from "@/lib/providers/registry";
+import { FIRST_CHUNK_TIMEOUT_MS, MAX_OUTPUT_TOKENS, STREAM_IDLE_TIMEOUT_MS } from "@/lib/providers/constants";
+import { getProvider, suggestAlternative } from "@/lib/providers/registry";
 import { estimateCostUsd } from "@/lib/providers/pricing";
 import type { GenerationResult, InventedMetadata, StoryParagraph } from "@/lib/providers/types";
 import { log, LOG_EVENTS } from "@/lib/observability/logger";
@@ -254,41 +254,158 @@ export async function POST(request: Request) {
     }
   }
 
-  const iterator = provider.generateParagraph({
-    storySoFar: input.storySoFar,
-    theme: input.theme,
-    characters: input.characters,
-    openingLines: input.openingLines,
-    targetLength: input.targetLength,
-    maxOutputTokens: MAX_OUTPUT_TOKENS,
-  });
+  // Re-bound so its non-undefined type survives into the nested closures below
+  // (attemptFirstChunk) — TypeScript doesn't carry the `if (!provider) return`
+  // narrowing above across a function boundary, only within the same scope.
+  const activeProvider = provider;
 
-  let first: IteratorResult<string, GenerationResult>;
-  try {
-    // Pre-fetch the first chunk before committing to a streaming Response, so a bad
-    // API key / invalid model / provider error surfaces as a clean 502 instead of a
-    // broken 200 stream.
-    console.log(`[generate:timing] iterator.next() (first chunk) starting at +${Date.now() - t0}ms`); // TEMPORARY, see ADR 0021
-    first = await iterator.next();
-    console.log(`[generate:timing] iterator.next() (first chunk) resolved at +${Date.now() - t0}ms`); // TEMPORARY, see ADR 0021
-  } catch (err) {
-    console.log(`[generate:timing] iterator.next() (first chunk) threw at +${Date.now() - t0}ms`); // TEMPORARY, see ADR 0021
+  // --- Timeouts and cancellation (docs/adr/0023) -----------------------------
+  //
+  // One AbortController drives the provider call throughout its life. Two
+  // independent sources can trip it: the client going away (request.signal —
+  // wired in here for the first time so an abandoned tab stops costing money
+  // both before and during streaming) and our own idle timers. `abortReason`
+  // is tracked explicitly rather than inferred from the resulting error's
+  // name/type, because that can't tell a client disconnect apart from our own
+  // timeout — both surface as an AbortError from the SDK.
+  const providerAbort = new AbortController();
+  let abortReason: "client" | "timeout" | undefined;
+
+  function onClientAbort() {
+    abortReason = "client";
+    providerAbort.abort();
+  }
+  request.signal.addEventListener("abort", onClientAbort);
+  if (request.signal.aborted) onClientAbort();
+
+  // `AbortSignal.timeout()` can't be rearmed, and the idle phase needs exactly
+  // that (reset on every chunk) — a plain timer paired with a shared
+  // AbortController is what actually supports both phases (a fixed budget pre-
+  // first-chunk, a resettable one once streaming starts) off one signal.
+  let idleTimer: ReturnType<typeof setTimeout> | undefined;
+  function armTimeout(ms: number) {
+    idleTimer = setTimeout(() => {
+      abortReason = "timeout";
+      providerAbort.abort();
+    }, ms);
+  }
+  function clearIdle() {
+    if (idleTimer !== undefined) {
+      clearTimeout(idleTimer);
+      idleTimer = undefined;
+    }
+  }
+
+  async function attemptFirstChunk(): Promise<
+    | { ok: true; iterator: AsyncGenerator<string, GenerationResult, unknown>; first: IteratorResult<string, GenerationResult> }
+    | { ok: false; err: unknown }
+  > {
+    const iterator = activeProvider.generateParagraph({
+      storySoFar: input.storySoFar,
+      theme: input.theme,
+      characters: input.characters,
+      openingLines: input.openingLines,
+      targetLength: input.targetLength,
+      maxOutputTokens: MAX_OUTPUT_TOKENS,
+      signal: providerAbort.signal,
+    });
+    armTimeout(FIRST_CHUNK_TIMEOUT_MS);
+    try {
+      // Pre-fetch the first chunk before committing to a streaming Response, so a bad
+      // API key / invalid model / provider error surfaces as a clean 502 instead of a
+      // broken 200 stream.
+      console.log(`[generate:timing] iterator.next() (first chunk) starting at +${Date.now() - t0}ms`); // TEMPORARY, see ADR 0021
+      const first = await iterator.next();
+      console.log(`[generate:timing] iterator.next() (first chunk) resolved at +${Date.now() - t0}ms`); // TEMPORARY, see ADR 0021
+      clearIdle();
+      return { ok: true, iterator, first };
+    } catch (err) {
+      console.log(`[generate:timing] iterator.next() (first chunk) threw at +${Date.now() - t0}ms`); // TEMPORARY, see ADR 0021
+      clearIdle();
+      return { ok: false, err };
+    }
+  }
+
+  let attempt = await attemptFirstChunk();
+
+  // Rule: a fast failure (a real error, not our own timeout, and not the
+  // client leaving) gets exactly one retry against the same provider before
+  // giving up — a fresh generator each time, never re-driving a finished one.
+  // A timeout never retries: it already cost the Writer the full budget once,
+  // and doubling that wait before they learn anything is worse than asking.
+  if (!attempt.ok && abortReason === undefined) {
+    attempt = await attemptFirstChunk();
+  }
+
+  if (!attempt.ok) {
+    if (abortReason === "client") {
+      // The client is already gone — nothing reads this response, and it must
+      // not read as a provider failure in the cost/outcome history.
+      await finish({ outcome: "cancelled", persisted: false, totalMs: Date.now() - startedAtMs });
+      return withRequestId(new Response(null, { status: 499 }), requestId);
+    }
+
     await finish({
       outcome: "provider_error",
       persisted: false,
       totalMs: Date.now() - startedAtMs,
-      err,
+      err: attempt.err,
     });
+
+    // Same posture as ADR 0011's uninformative registration responses: never
+    // tell the client whether this was a bad key, a provider outage, or a
+    // timeout — only that the provider isn't responding. The real cause is in
+    // the server-side log line above.
+    const suggestedId = suggestAlternative(activeProvider.id);
+    const suggestedProvider = suggestedId ? getProvider(suggestedId) : undefined;
     return withRequestId(
-      Response.json({ error: "Generation failed to start" }, { status: 502 }),
+      Response.json(
+        {
+          error: `${activeProvider.displayName} isn't responding right now.`,
+          kind: "provider-unavailable",
+          failedProviderId: activeProvider.id,
+          ...(suggestedProvider
+            ? { suggestedProviderId: suggestedProvider.id, suggestedProviderName: suggestedProvider.displayName }
+            : {}),
+        },
+        { status: 502 }
+      ),
       requestId
     );
   }
+
+  const { iterator, first } = attempt;
   const ttftMs = Date.now() - startedAtMs;
   log.info(LOG_EVENTS.GENERATE_FIRST_CHUNK, { requestId, providerId: input.providerId, ttftMs });
 
   const encoder = new TextEncoder();
   let aiText = "";
+
+  // Guards the stream lifecycle against running its terminal logic twice: a
+  // client disconnect mid-stream can reach `pull()`'s catch (via the
+  // request.signal listener above, forwarded onto providerAbort) and the
+  // platform's own ReadableStream `cancel()` at nearly the same time, since
+  // both ultimately observe the same disconnect.
+  let finishedOnce = false;
+  async function finishOnce(args: FinishArgs): Promise<boolean> {
+    if (finishedOnce) return false;
+    finishedOnce = true;
+    await finish(args);
+    return true;
+  }
+
+  async function safeReturn() {
+    try {
+      // The value passed to .return() is never read by anything — its only
+      // purpose here is the side effect of running the generator's cleanup
+      // (e.g. disposing the underlying SDK stream). The cast reflects that:
+      // there is no real GenerationResult to offer on a cancelled turn.
+      await iterator.return?.(undefined as unknown as GenerationResult);
+    } catch {
+      // Idempotent-safe: the SDK may already be tearing down from the abort
+      // signal firing, and a throw here must not mask the real outcome.
+    }
+  }
 
   async function persistAIParagraph(
     metadata: InventedMetadata | undefined
@@ -330,14 +447,14 @@ export async function POST(request: Request) {
     // client immediately, without waiting on pull()'s own returned promise, so
     // anything sequenced after it here would still be in flight once the
     // caller believes the request is fully finished.
-    await finish({
+    const didFinish = await finishOnce({
       outcome: persistOutcome === "failed" ? "persist_failed" : "success",
       persisted: persistOutcome === "written",
       result,
       ttftMs,
       totalMs: Date.now() - startedAtMs,
     });
-    controller.close();
+    if (didFinish) controller.close();
   }
 
   const stream = new ReadableStream<Uint8Array>({
@@ -348,6 +465,7 @@ export async function POST(request: Request) {
         } else {
           aiText += first.value;
           controller.enqueue(encoder.encode(first.value));
+          armTimeout(STREAM_IDLE_TIMEOUT_MS);
         }
       });
     },
@@ -355,25 +473,36 @@ export async function POST(request: Request) {
       return context.with(trace.setSpan(context.active(), span), async () => {
         try {
           const { value, done } = await iterator.next();
+          clearIdle();
           if (done) {
             await completeGeneration(controller, value);
           } else {
             aiText += value;
             controller.enqueue(encoder.encode(value));
+            armTimeout(STREAM_IDLE_TIMEOUT_MS);
           }
         } catch (err) {
-          await finish({
+          clearIdle();
+          if (abortReason === "client") {
+            // The platform's own cancel() below is what actually runs cleanup
+            // for a disconnected client; touching a controller whose consumer
+            // is already gone risks throwing on top of the original error.
+            return;
+          }
+          // A provider failure or stall mid-stream has to reach the client. The
+          // client maps a broken stream to "stream-aborted" and runs its single
+          // auto-retry; closing the stream normally instead would hand the
+          // Writer a truncated paragraph presented as a finished one, with
+          // nothing to retry from. Never offered as a provider switch (see
+          // docs/adr/0023): a seam mid-paragraph is worse than a plain retry.
+          const didFinish = await finishOnce({
             outcome: "provider_error",
             persisted: false,
             ttftMs,
             totalMs: Date.now() - startedAtMs,
             err,
           });
-          // A provider failure mid-stream has to reach the client. The client maps
-          // a broken stream to "stream-aborted" and runs its single auto-retry;
-          // closing the stream normally instead would hand the Writer a truncated
-          // paragraph presented as a finished one, with nothing to retry from.
-          controller.error(err);
+          if (didFinish) controller.error(err);
         }
       });
     },
@@ -384,17 +513,14 @@ export async function POST(request: Request) {
         // client's one auto-retry re-runs the whole turn; syncStoryParagraphs is
         // idempotent against the already-persisted Writer paragraphs, so the retry
         // appends nothing and simply regenerates the AI turn.
-        await finish({
+        clearIdle();
+        await finishOnce({
           outcome: "cancelled",
           persisted: false,
           ttftMs,
           totalMs: Date.now() - startedAtMs,
         });
-        // The value passed to .return() is never read by anything — its only
-        // purpose here is the side effect of running the generator's cleanup
-        // (e.g. disposing the underlying SDK stream). The cast reflects that:
-        // there is no real GenerationResult to offer on a cancelled turn.
-        await iterator.return?.(undefined as unknown as GenerationResult);
+        await safeReturn();
         void reason;
       });
     },
