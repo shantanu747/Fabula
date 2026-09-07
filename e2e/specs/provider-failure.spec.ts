@@ -31,7 +31,11 @@ test.describe("provider failure paths", () => {
     await startStory(page);
     const alert = errorAlert(page);
     await expect(alert).toBeVisible();
-    const tryAgain = alert.getByRole("button", { name: "Try again" });
+    // A fast failure retries once (docs/adr/0023 rule 1) before giving up, and
+    // with every provider configured in this harness (playwright.config.ts),
+    // the banner always offers a named alternative — "Try again" is what the
+    // decline button reads as here, not a single unlabeled retry.
+    const tryAgain = alert.getByRole("button", { name: /Try Claude .* again/ });
     await expect(tryAgain).toBeVisible();
 
     await setMockScript(streamResponse(["It works on retry."]));
@@ -63,20 +67,58 @@ test.describe("provider failure paths", () => {
     await expect(paragraphArticles(page).nth(0)).toContainText("The retry picks up cleanly.");
   });
 
-  // TODO(plan-04): there is no server-side generation timeout yet, so a hung
-  // provider just hangs forever — this asserts today's (undesirable) behaviour
-  // rather than a timeout, so Plan 4 has a failing test to make pass once it
-  // adds one. waitForTimeout is normally off-limits in this suite (see
-  // ../../docs/plans/v3/02-e2e-journeys.md's "Assertions to avoid"), but there
-  // is no settled state to poll toward here — nothing ever changes, which is
-  // exactly the thing being asserted.
-  test("a hung provider has no timeout yet", async ({ page }) => {
+  // The FIRST_CHUNK_TIMEOUT_MS budget (src/lib/providers/constants.ts) is a
+  // real 20s wait here, not shortened for the test — docs/adr/0023 explicitly
+  // keeps the timeouts fixed rather than configurable, so this suite lives
+  // with the real duration instead of a seam that only exists for tests.
+  const TIMEOUT_BUDGET_MS = 25_000;
+
+  test("a hung provider surfaces an error naming a named alternative within the timeout budget", async ({
+    page,
+  }) => {
+    test.setTimeout(45_000); // FIRST_CHUNK_TIMEOUT_MS (20s) plus page/DB overhead
     await setMockScript(hangResponse());
     await startStory(page);
 
-    await page.waitForTimeout(5_000);
+    // Nothing has settled yet while still within budget.
     await expect(page.getByRole("status")).toHaveText(/is writing a paragraph/);
-    await expect(errorAlert(page)).toHaveCount(0);
     await expect(paragraphArticles(page)).toHaveCount(0);
+
+    const alert = errorAlert(page);
+    await expect(alert).toBeVisible({ timeout: TIMEOUT_BUDGET_MS });
+    // The default provider (registry order) is Claude/Anthropic; the first
+    // other configured provider is GPT-5 mini/OpenAI (see e2e/playwright.config.ts).
+    await expect(alert.getByRole("button", { name: /Use GPT-5 mini/ })).toBeVisible();
+    await expect(alert.getByRole("button", { name: /Try Claude .* again/ })).toBeVisible();
+  });
+
+  test("accepting the suggestion switches provider and attributes the next paragraph to it", async ({
+    page,
+  }) => {
+    test.setTimeout(45_000);
+    await setMockScript(hangResponse(), streamResponse(["Written by the second provider."]));
+    await startStory(page);
+
+    const alert = errorAlert(page);
+    await expect(alert).toBeVisible({ timeout: TIMEOUT_BUDGET_MS });
+    await alert.getByRole("button", { name: /Use GPT-5 mini/ }).click();
+
+    await waitForAiParagraph(page, 1);
+    await expect(paragraphArticles(page).nth(0)).toContainText("Written by the second provider.");
+    await expect(paragraphArticles(page).nth(0)).toContainText("GPT-5 mini");
+  });
+
+  test("declining the suggestion retries the original provider", async ({ page }) => {
+    test.setTimeout(45_000);
+    await setMockScript(hangResponse(), streamResponse(["The original provider came through."]));
+    await startStory(page);
+
+    const alert = errorAlert(page);
+    await expect(alert).toBeVisible({ timeout: TIMEOUT_BUDGET_MS });
+    await alert.getByRole("button", { name: /Try Claude .* again/ }).click();
+
+    await waitForAiParagraph(page, 1);
+    await expect(paragraphArticles(page).nth(0)).toContainText("The original provider came through.");
+    await expect(paragraphArticles(page).nth(0)).toContainText("Claude");
   });
 });

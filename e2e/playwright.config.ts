@@ -58,7 +58,14 @@ export default defineConfig({
     // output. Remove this once the timing diagnostics above are removed.
     stdout: "pipe",
     env: {
+      // All three point at the same mock (docs/adr/0019's "the seam is the
+      // provider's base URL" applies uniformly) — Plan 4's provider-failover
+      // tests are the first to actually need a second provider to succeed
+      // through the mock rather than just fail, which surfaced that only
+      // ANTHROPIC_BASE_URL had ever been wired here.
       ANTHROPIC_BASE_URL: MOCK_PROVIDER_URL,
+      OPENAI_BASE_URL: MOCK_PROVIDER_URL,
+      OPENROUTER_BASE_URL: MOCK_PROVIDER_URL,
       // The SDK requires a non-empty string even when the base URL is local.
       ANTHROPIC_API_KEY: "e2e-key",
       OPENAI_API_KEY: "e2e-key",
