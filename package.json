@@ -18,6 +18,8 @@
     "test:e2e": "playwright test --config e2e/playwright.config.ts",
     "test:e2e:ui": "playwright test --config e2e/playwright.config.ts --ui",
     "test:e2e:soak": "playwright test --config e2e/playwright.config.ts --repeat-each=10",
+    "test:scripts": "vitest run --config vitest.scripts.config.mts",
+    "bundle-budget": "tsx scripts/bundle-budget.mts",
     "db:generate": "node --env-file=.env.local ./node_modules/.bin/drizzle-kit generate",
     "db:migrate": "node --env-file=.env.local ./node_modules/.bin/drizzle-kit migrate"
   },
