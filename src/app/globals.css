@@ -5,7 +5,10 @@
   --foreground: #2a241c;
   --card: #ffffff;
   --border: #e7e0d3;
-  --muted: #83786a;
+  /* Darkened from #83786a (2026-09-07, docs/adr/0024) — the original fell
+     short of WCAG AA 4.5:1 against --background/--card/--ai-soft (measured
+     3.79-4.32). This clears all three with margin (4.51-5.14). */
+  --muted: #766c60;
   --accent: #b0501f;
   --accent-foreground: #fff8f0;
   --ai: #4a5a4e;
