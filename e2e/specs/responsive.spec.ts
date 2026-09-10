@@ -3,7 +3,7 @@ import { resetDatabase } from "../helpers/db";
 import { resetMockScript } from "../helpers/mock";
 import { seedRouteCheckpoints } from "../helpers/routes";
 
-// Absorbs scripts/responsive-check.mjs (deleted — see docs/adr/0024) into the
+// Absorbs scripts/responsive-check.mjs (deleted — see docs/adr/0027) into the
 // Playwright harness, which is what lets this reach signed-in /library and
 // /feed/[id] and a mid-story /story: the old script only had an anonymous
 // `page.goto`, so it could never carry a session. Runs under the mobile,

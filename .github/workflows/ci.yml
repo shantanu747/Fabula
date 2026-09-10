@@ -79,7 +79,7 @@ jobs:
   quality:
     runs-on: ubuntu-latest
     # Parallel to `build` and `e2e`, not chained after either — see
-    # docs/adr/0024. Its own `next build` (needed for the bundle-budget
+    # docs/adr/0027. Its own `next build` (needed for the bundle-budget
     # check below) reuses the same module-scope-only env as the `build`
     # job's, for the same reason.
     env:

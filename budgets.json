@@ -1,5 +1,5 @@
 {
-  "_comment": "First-load JS budgets (gzipped bytes), checked by scripts/bundle-budget.mts after `next build`. JSON has no real comment syntax, so the measured baseline lives in _measuredAt/_baseline below instead — see docs/adr/0024-ci-quality-gates.md. Each budget is the baseline plus ~10% headroom, rounded. Re-measure and update both this file and _baseline together if a route's JS genuinely needs to grow; do not just raise the number to make a failing build pass.",
+  "_comment": "First-load JS budgets (gzipped bytes), checked by scripts/bundle-budget.mts after `next build`. JSON has no real comment syntax, so the measured baseline lives in _measuredAt/_baseline below instead — see docs/adr/0027-ci-quality-gates.md. Each budget is the baseline plus ~10% headroom, rounded. Re-measure and update both this file and _baseline together if a route's JS genuinely needs to grow; do not just raise the number to make a failing build pass.",
   "_measuredAt": "2026-09-07",
   "_baseline": {
     "/": 13764,

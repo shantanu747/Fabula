@@ -29,7 +29,7 @@ test.describe("accessibility", () => {
         ];
 
         // Reported but not gated on — a gate that fires on every minor
-        // contrast nudge gets disabled within a month (docs/adr/0024).
+        // contrast nudge gets disabled within a month (docs/adr/0027).
         for (const violation of reportable) {
           console.log(`[axe:${violation.impact}] ${name}: ${violation.id} — ${violation.help}`);
         }

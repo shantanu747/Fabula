@@ -1,6 +1,6 @@
 /**
  * Checks each budgeted route's first-load JS (gzipped) against budgets.json.
- * Run after `next build` — see `npm run bundle-budget` and docs/adr/0024.
+ * Run after `next build` — see `npm run bundle-budget` and docs/adr/0027.
  *
  * Next 16 builds with Turbopack by default, which does not produce the
  * webpack-era `.next/app-build-manifest.json`. The per-route entry chunks
