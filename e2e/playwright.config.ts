@@ -7,6 +7,8 @@ import {
   NEON_FETCH_ENDPOINT,
 } from "./constants";
 
+const VIEWPORT_SPECS = [/responsive\.spec\.ts$/, /accessibility\.spec\.ts$/];
+
 export default defineConfig({
   testDir: "./specs",
   globalSetup: "./global-setup.ts",
@@ -41,9 +43,34 @@ export default defineConfig({
     baseURL: BASE_URL,
     trace: "retain-on-failure",
     video: "retain-on-failure",
+    // Absorbed from the deleted scripts/responsive-check.mjs (Plan 6) — that
+    // script's full-page screenshots were the useful half of it, kept here as
+    // a failure artifact rather than something every spec generates.
+    screenshot: "only-on-failure",
   },
 
-  projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
+  // The journey specs run once, at a single desktop viewport, under
+  // "chromium". responsive.spec.ts and accessibility.spec.ts are the only
+  // specs that need to run at every viewport (Plan 6) — testMatch/testIgnore
+  // split them apart so nothing runs three times over.
+  projects: [
+    { name: "chromium", use: { ...devices["Desktop Chrome"] }, testIgnore: VIEWPORT_SPECS },
+    {
+      name: "mobile",
+      use: { ...devices["Desktop Chrome"], viewport: { width: 375, height: 812 } },
+      testMatch: VIEWPORT_SPECS,
+    },
+    {
+      name: "tablet",
+      use: { ...devices["Desktop Chrome"], viewport: { width: 768, height: 1024 } },
+      testMatch: VIEWPORT_SPECS,
+    },
+    {
+      name: "desktop",
+      use: { ...devices["Desktop Chrome"], viewport: { width: 1440, height: 900 } },
+      testMatch: VIEWPORT_SPECS,
+    },
+  ],
 
   webServer: {
     command: `npm run build && npm run start -- -p ${APP_PORT}`,

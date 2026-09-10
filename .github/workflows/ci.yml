@@ -76,6 +76,44 @@ jobs:
 
       - run: npm run build
 
+  quality:
+    runs-on: ubuntu-latest
+    # Parallel to `build` and `e2e`, not chained after either — see
+    # docs/adr/0027. Its own `next build` (needed for the bundle-budget
+    # check below) reuses the same module-scope-only env as the `build`
+    # job's, for the same reason.
+    env:
+      ANTHROPIC_API_KEY: test-key
+      OPENAI_API_KEY: test-key
+      OPENROUTER_API_KEY: test-key
+      DATABASE_URL: postgres://user:pass@localhost:5432/fabula
+      AUTH_SECRET: ci-placeholder-secret
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # See docs/adr/0012 — same reasoning as the build job above.
+      - run: npm i -g npm@11
+
+      - run: npm ci
+
+      # Standalone (tsc --noEmit), so a type error is visible within seconds
+      # of this job starting rather than after the slower jobs' own steps.
+      - run: npm run typecheck
+
+      - run: npm run test:scripts
+
+      - run: npm run build
+
+      # First-load JS for the budgeted routes, against budgets.json. Every
+      # runner checkout is cold, so this always measures a fresh .next —
+      # see AGENTS.md's note on rm -rf .next for reproducing this locally.
+      - run: npm run bundle-budget
+
   e2e:
     runs-on: ubuntu-latest
     # Parallel to `build`, not chained after it — this job does its own

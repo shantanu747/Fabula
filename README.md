@@ -68,8 +68,15 @@ npm run test:unit       # no database needed
 npm run test:db         # needs Postgres (see below)
 npm run test:coverage   # enforces the tiered thresholds in vitest.config.mts
 npm run test:perf       # EXPLAIN suite; seeds ~100k rows, run after index changes
-npm run test:responsive # screenshots every page at 375/768/1440 and flags overflow
+npm run typecheck       # tsc --noEmit, standalone so a type error fails in seconds
+npm run test:scripts    # unit tests for the standalone scripts (e.g. bundle-budget)
+npm run bundle-budget   # after `next build` — checks first-load JS against budgets.json
 ```
+
+Responsive layout (mobile/tablet/desktop) and accessibility (axe) checks live in
+`e2e/specs/responsive.spec.ts` and `e2e/specs/accessibility.spec.ts` — part of
+`npm run test:e2e`, not a separate script, since they need the same signed-in
+sessions and mock provider the rest of that suite already sets up.
 
 ### Running the tests that need a database
 

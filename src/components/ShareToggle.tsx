@@ -37,8 +37,8 @@ export function ShareToggle({
       disabled={isSaving}
       className={
         isShared
-          ? "rounded-full bg-accent px-3 py-1.5 text-xs font-medium text-accent-foreground transition-opacity hover:opacity-90 disabled:opacity-40"
-          : "rounded-full border border-border px-3 py-1.5 text-xs font-medium text-muted transition-colors hover:border-accent hover:text-accent disabled:opacity-40"
+          ? "tap-target rounded-full bg-accent px-3 py-1.5 text-xs font-medium text-accent-foreground transition-opacity hover:opacity-90 disabled:opacity-40"
+          : "tap-target rounded-full border border-border px-3 py-1.5 text-xs font-medium text-muted transition-colors hover:border-accent hover:text-accent disabled:opacity-40"
       }
     >
       {isShared ? "Shared to feed" : "Share to feed"}

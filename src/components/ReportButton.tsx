@@ -24,7 +24,7 @@ export function ReportButton({ storyId }: { storyId: string }) {
       type="button"
       onClick={report}
       disabled={state === "sending"}
-      className="rounded-full border border-border px-3 py-1.5 text-xs font-medium text-muted transition-colors hover:border-accent hover:text-accent disabled:opacity-40"
+      className="tap-target rounded-full border border-border px-3 py-1.5 text-xs font-medium text-muted transition-colors hover:border-accent hover:text-accent disabled:opacity-40"
     >
       {state === "sending" ? "Reporting…" : "Report"}
     </button>
