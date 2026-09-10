@@ -183,14 +183,18 @@ function StoryPage() {
                     <button
                       type="button"
                       onClick={() => switchProviderAndRetry(generation.suggestedProviderId!)}
-                      className="tap-target rounded-xl bg-accent px-4 py-2 text-xs font-medium text-accent-foreground transition-opacity hover:opacity-90"
+                      // min-h-11 rather than .tap-target: this pair wraps onto
+                      // separate rows at mobile widths, and .tap-target's
+                      // invisible hit-area overlay would then overlap the
+                      // other button's row (see its comment in globals.css).
+                      className="inline-flex min-h-11 items-center rounded-xl bg-accent px-4 py-2 text-xs font-medium text-accent-foreground transition-opacity hover:opacity-90"
                     >
                       Use {generation.suggestedProviderName ?? "another provider"}
                     </button>
                     <button
                       type="button"
                       onClick={() => generateNext()}
-                      className="tap-target rounded-xl border border-border px-4 py-2 text-xs font-medium text-foreground transition-colors hover:border-accent hover:text-accent"
+                      className="inline-flex min-h-11 items-center rounded-xl border border-border px-4 py-2 text-xs font-medium text-foreground transition-colors hover:border-accent hover:text-accent"
                     >
                       Try {providerDisplayName(generation.failedProviderId)} again
                     </button>
@@ -199,7 +203,7 @@ function StoryPage() {
                   <button
                     type="button"
                     onClick={() => generateNext()}
-                    className="tap-target rounded-xl border border-border px-4 py-2 text-xs font-medium text-foreground transition-colors hover:border-accent hover:text-accent"
+                    className="inline-flex min-h-11 items-center rounded-xl border border-border px-4 py-2 text-xs font-medium text-foreground transition-colors hover:border-accent hover:text-accent"
                   >
                     Try again
                   </button>
