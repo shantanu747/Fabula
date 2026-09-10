@@ -20,7 +20,7 @@ For *why* the codebase is built the way it is — not just what it should do —
 
 ## Stack constraints
 
-- Next.js **16.3.0**, App Router, TypeScript, Tailwind. Do not add pages router, do not add a separate CSS framework.
+- Next.js **16.3.4**, App Router, TypeScript, Tailwind. Do not add pages router, do not add a separate CSS framework.
 - v2 (this pass) added a database and auth: Postgres (Neon) via Drizzle, Auth.js v5 for sign-in (email/password + Google). See `docs/adr/0009-accounts-and-persistence-architecture.md`. Guest (logged-out) writing remains fully supported and un-gated — persistence is additive, not a requirement to use the app. Client `StoryContext` state remains the source of truth while a story is being actively written; the database is a write-through mirror for logged-in Writers only (never the other way around).
 - Do not introduce a new package (state management, UI kit, etc.) without checking if the existing stack already covers it.
 

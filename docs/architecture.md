@@ -4,7 +4,7 @@ This is a system-level overview of how Fabula is put together. For product scope
 
 ## Stack
 
-Next.js 16.3.0 (App Router), TypeScript (`strict: true`), Tailwind CSS v4, React 19. Client story state for an actively-written story lives in a React Context, not a database — see `docs/adr/0007-client-state-architecture.md`. As of v2, logged-in Writers additionally get server persistence: Postgres (Neon) via Drizzle, Auth.js v5 for sign-in — see `docs/adr/0009-accounts-and-persistence-architecture.md` and `docs/adr/0010-shared-story-feed-and-safety.md`. Guest (logged-out) use of the core write flow is unaffected and needs neither.
+Next.js 16.3.4 (App Router), TypeScript (`strict: true`), Tailwind CSS v4, React 19. Client story state for an actively-written story lives in a React Context, not a database — see `docs/adr/0007-client-state-architecture.md`. As of v2, logged-in Writers additionally get server persistence: Postgres (Neon) via Drizzle, Auth.js v5 for sign-in — see `docs/adr/0009-accounts-and-persistence-architecture.md` and `docs/adr/0010-shared-story-feed-and-safety.md`. Guest (logged-out) use of the core write flow is unaffected and needs neither.
 
 ## Directory layout
 
