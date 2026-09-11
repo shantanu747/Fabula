@@ -17,6 +17,13 @@ jobs:
       OPENROUTER_API_KEY: test-key
       DATABASE_URL: postgres://user:pass@localhost:5432/fabula
       AUTH_SECRET: ci-placeholder-secret
+      # store.parity.db.test.ts and lease.db.test.ts (docs/adr/0035) need a real
+      # Redis; every other test in this job explicitly neutralizes these two vars
+      # in its own setup so an ambient value here can't silently redirect an
+      # unrelated test's rate-limit/admission/budget check to Redis instead of
+      # the Postgres path it's named for (see kv/client.test.ts's comment).
+      KV_REST_API_URL: http://localhost:8079
+      KV_REST_API_TOKEN: ci-placeholder-token
     # The `db` Vitest project (src/test/global-setup-db.ts) needs a real Postgres
     # to clone its per-worker template from — it fails loudly rather than skipping
     # silently if it can't reach one. User/password/port match the default
@@ -35,6 +42,26 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
+      redis:
+        image: redis:8-alpine
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      # `@upstash/redis` speaks Upstash's HTTP REST protocol, not the Redis wire
+      # protocol, so the production client can't talk to the `redis` service
+      # above directly — this proxy gives it the same protocol Upstash's own
+      # endpoint speaks, exact parity with the Neon HTTP proxy's role for
+      # Postgres (docs/adr/0035, docs/plans/v4/README.md).
+      serverless-redis-http:
+        image: hiett/serverless-redis-http:latest
+        env:
+          SRH_MODE: env
+          SRH_TOKEN: ci-placeholder-token
+          SRH_CONNECTION_STRING: redis://redis:6379
+        ports:
+          - 8079:80
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -130,6 +157,14 @@ jobs:
       # resolves to 127.0.0.1) still works for the *runner's* own connections,
       # since both services publish to the runner's localhost too.
       E2E_NEON_PROXY_HOST: db.localtest.me:4444
+      # Admission control (docs/adr/0035, docs/adr/0036) needs a real Redis to
+      # be exercised at all — with none configured it fails open, and
+      # concurrent-generation.spec.ts's refusal assertion would never fire.
+      # localhost, not the service name: this is consumed by the app process
+      # Playwright's own webServer spawns on the runner itself, not by another
+      # container — same reasoning as db.localtest.me:4444 above.
+      KV_REST_API_URL: http://localhost:8079
+      KV_REST_API_TOKEN: ci-placeholder-token
     services:
       postgres:
         image: postgres:17-alpine
@@ -154,6 +189,21 @@ jobs:
           PG_CONNECTION_STRING: postgres://postgres:postgres@postgres:5432/fabula_e2e
         ports:
           - 4444:4444
+      redis:
+        image: redis:8-alpine
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      serverless-redis-http:
+        image: hiett/serverless-redis-http:latest
+        env:
+          SRH_MODE: env
+          SRH_TOKEN: ci-placeholder-token
+          SRH_CONNECTION_STRING: redis://redis:6379
+        ports:
+          - 8079:80
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 

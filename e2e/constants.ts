@@ -24,3 +24,12 @@ export const E2E_DB_NAME = "fabula_e2e";
 export const NEON_PROXY_HOST = process.env.E2E_NEON_PROXY_HOST ?? "db.localtest.me:4444";
 export const DATABASE_URL = `postgres://postgres:postgres@${NEON_PROXY_HOST}/${E2E_DB_NAME}`;
 export const NEON_FETCH_ENDPOINT = `http://${NEON_PROXY_HOST}/sql`;
+
+// admission-control.spec.ts needs a real Redis to exercise the concurrency
+// refusal at all — with none reachable, admission control fails open
+// (docs/adr/0035) and that spec's refusal assertion would never fire. Local
+// default matches README's "Developing against local Redis" docker commands;
+// CI sets KV_REST_API_URL/KV_REST_API_TOKEN at the job level instead (same
+// override pattern E2E_NEON_PROXY_HOST uses above).
+export const KV_REST_API_URL = process.env.KV_REST_API_URL ?? "http://localhost:8079";
+export const KV_REST_API_TOKEN = process.env.KV_REST_API_TOKEN ?? "dev";

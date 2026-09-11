@@ -1,10 +1,16 @@
 import { getDb, hasDatabase } from "@/lib/db/client";
 import {
   clientIp,
+  FEED_READ,
   GENERATE_GUEST,
+  GENERATE_GUEST_UNIDENTIFIED,
   GENERATE_USER,
   HEALTH,
   REGISTER,
+  REPORT,
+  STORIES_READ,
+  STORIES_WRITE,
+  UNIDENTIFIED_GUEST_IP,
   type RateLimitPolicy,
 } from "./policy";
 import { consumeToken, tooManyRequests } from "./store";
@@ -61,15 +67,46 @@ export function guardGenerate(request: Request, userId: string | undefined): Pro
       "You're writing faster than we can keep up. Give it a few seconds and try again."
     );
   }
+  const ip = clientIp(request);
+  // No proxy header named an individual caller — see clientIp's doc comment.
+  // Every guest in this state shares one bucket, so it gets the policy sized
+  // for a shared population rather than the normal per-guest one.
+  if (ip === UNIDENTIFIED_GUEST_IP) {
+    return apply(
+      GENERATE_GUEST_UNIDENTIFIED,
+      ip,
+      "Too many stories from unrecognized connections just now. Give it a few minutes, or sign in for a higher limit."
+    );
+  }
   return apply(
     GENERATE_GUEST,
-    clientIp(request),
+    ip,
     "Too many stories from this connection just now. Give it a minute, or sign in for a higher limit."
   );
 }
 
 export function guardRegister(request: Request): Promise<Response | null> {
   return apply(REGISTER, clientIp(request), "Too many sign-up attempts. Try again shortly.");
+}
+
+/**
+ * Every route below already requires a session (401s otherwise), so identity
+ * is always the account — there is no guest path to key by address for these.
+ */
+export function guardStoriesRead(userId: string): Promise<Response | null> {
+  return apply(STORIES_READ, userId, "Too many requests. Give it a moment and try again.");
+}
+
+export function guardStoriesWrite(userId: string): Promise<Response | null> {
+  return apply(STORIES_WRITE, userId, "Too many requests. Give it a moment and try again.");
+}
+
+export function guardFeedRead(userId: string): Promise<Response | null> {
+  return apply(FEED_READ, userId, "Too many requests. Give it a moment and try again.");
+}
+
+export function guardReport(userId: string): Promise<Response | null> {
+  return apply(REPORT, userId, "Too many reports from this account. Try again later.");
 }
 
 /**

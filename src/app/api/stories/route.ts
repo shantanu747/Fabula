@@ -3,6 +3,7 @@ import { auth } from "@/auth";
 import { getDb } from "@/lib/db/client";
 import { stories, storyParagraphs } from "@/lib/db/schema";
 import { areValidHints, isValidTargetLength } from "@/lib/story/validation";
+import { guardStoriesRead, guardStoriesWrite } from "@/lib/ratelimit/guard";
 
 interface CreateStoryBody {
   theme?: string;
@@ -25,6 +26,8 @@ export async function POST(request: Request) {
   if (!session?.user?.id) {
     return Response.json({ error: "Not authenticated" }, { status: 401 });
   }
+  const limited = await guardStoriesWrite(session.user.id);
+  if (limited) return limited;
 
   let body: unknown;
   try {
@@ -56,6 +59,8 @@ export async function GET() {
   if (!session?.user?.id) {
     return Response.json({ error: "Not authenticated" }, { status: 401 });
   }
+  const limited = await guardStoriesRead(session.user.id);
+  if (limited) return limited;
 
   const rows = await getDb()
     .select({

@@ -1,28 +1,82 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import fc from "fast-check";
 import {
   bucketKey,
   clientIp,
+  FEED_READ,
   GENERATE_GUEST,
+  GENERATE_GUEST_UNIDENTIFIED,
   GENERATE_USER,
   REGISTER,
+  REPORT,
   retryAfterSeconds,
+  STORIES_READ,
+  STORIES_WRITE,
 } from "./policy";
 
 function requestWith(headers: Record<string, string>): Request {
   return new Request("http://localhost/api/generate", { method: "POST", headers });
 }
 
+let savedHopCount: string | undefined;
+
+afterEach(() => {
+  if (savedHopCount === undefined) delete process.env.TRUSTED_PROXY_HOP_COUNT;
+  else process.env.TRUSTED_PROXY_HOP_COUNT = savedHopCount;
+});
+
+function withHopCount(value: string) {
+  savedHopCount = process.env.TRUSTED_PROXY_HOP_COUNT;
+  process.env.TRUSTED_PROXY_HOP_COUNT = value;
+}
+
 describe("clientIp", () => {
-  it("takes the original client from the left of x-forwarded-for", () => {
-    // The platform rewrites this header on the way in, so the leftmost entry is
-    // the caller and the rest are proxies it passed through.
+  it("reads the rightmost x-forwarded-for entry by default (one trusted hop)", () => {
+    // Vercel appends rather than rewrites: the entry it adds itself lands on
+    // the right, and that is the one entry this deployment actually controls.
     const ip = clientIp(requestWith({ "x-forwarded-for": "203.0.113.7, 70.41.3.18, 150.172.238.178" }));
 
-    expect(ip).toBe("203.0.113.7");
+    expect(ip).toBe("150.172.238.178");
   });
 
-  it("falls back to x-real-ip", () => {
+  it("ignores a spoofed left entry — the bug this replaces", () => {
+    // An attacker controls everything left of what their own connection's hop
+    // appended. Two requests differing only in their spoofed prefix must land
+    // on the same bucket, not mint a fresh one each time.
+    const spoofed1 = clientIp(requestWith({ "x-forwarded-for": "1.2.3.4, 203.0.113.7" }));
+    const spoofed2 = clientIp(requestWith({ "x-forwarded-for": "9.9.9.9, 203.0.113.7" }));
+
+    expect(spoofed1).toBe("203.0.113.7");
+    expect(spoofed2).toBe("203.0.113.7");
+  });
+
+  it.each([
+    ["0", "203.0.113.7, 70.41.3.18, 150.172.238.178", undefined],
+    ["1", "203.0.113.7, 70.41.3.18, 150.172.238.178", "150.172.238.178"],
+    ["2", "203.0.113.7, 70.41.3.18, 150.172.238.178", "70.41.3.18"],
+    ["3", "203.0.113.7, 70.41.3.18, 150.172.238.178", "203.0.113.7"],
+  ])("TRUSTED_PROXY_HOP_COUNT=%s counts back that many entries from the right", (hopCount, header, expected) => {
+    withHopCount(hopCount);
+
+    const ip = clientIp(requestWith({ "x-forwarded-for": header }));
+
+    // A hop count of 0 is nonsensical (treated as the default, 1) rather than
+    // "trust nothing" or an out-of-range read — see trustedProxyHopCount().
+    expect(ip).toBe(expected ?? "150.172.238.178");
+  });
+
+  it("treats a hop count exceeding the header's own entries as untrustworthy, not an out-of-range read", () => {
+    withHopCount("5");
+
+    const ip = clientIp(requestWith({ "x-forwarded-for": "203.0.113.7, 70.41.3.18" }));
+
+    // Only 2 entries exist; a 5-hop-deep read can't have been written entirely
+    // by infrastructure this deployment controls, so it falls back like an
+    // absent header would.
+    expect(ip).toBe("unknown");
+  });
+
+  it("falls back to x-real-ip when x-forwarded-for is absent", () => {
     expect(clientIp(requestWith({ "x-real-ip": "203.0.113.9" }))).toBe("203.0.113.9");
   });
 
@@ -31,8 +85,8 @@ describe("clientIp", () => {
     ["an empty x-forwarded-for", { "x-forwarded-for": "" }],
     ["a whitespace-only entry", { "x-forwarded-for": "  " }],
   ])("returns a stable placeholder for %s", (_label, headers) => {
-    // Everyone unidentifiable shares one bucket. That is stricter than giving
-    // each of them their own, which is the right way round for a limiter.
+    // Everyone unidentifiable shares one bucket, under a policy sized for a
+    // shared population rather than one caller (see guard.ts's guardGenerate).
     expect(clientIp(requestWith(headers))).toBe("unknown");
   });
 });
@@ -114,6 +168,23 @@ describe("the policies themselves", () => {
     // limit should be invisible to anyone actually writing a story.
     expect(GENERATE_GUEST.capacity).toBeGreaterThanOrEqual(5);
   });
+
+  it("caps the shared 'no proxy signal' guest bucket far more tightly than one identified guest", () => {
+    // Every guest in this state shares the one bucket, so its sustained rate
+    // must describe a population's budget, not one caller's.
+    expect(GENERATE_GUEST_UNIDENTIFIED.refillPerSecond).toBeLessThan(GENERATE_GUEST.refillPerSecond);
+  });
+
+  it("keeps writes stricter than reads for the account-scoped routes", () => {
+    expect(STORIES_WRITE.refillPerSecond).toBeLessThan(STORIES_READ.refillPerSecond);
+  });
+
+  it("makes REPORT the strictest policy in the file — it writes a row on every call", () => {
+    const all = [GENERATE_USER, GENERATE_GUEST, REGISTER, STORIES_READ, STORIES_WRITE, FEED_READ];
+    for (const policy of all) {
+      expect(REPORT.refillPerSecond).toBeLessThan(policy.refillPerSecond);
+    }
+  });
 });
 
 describe("clientIp — a proxy header present but unusable", () => {
@@ -123,16 +194,21 @@ describe("clientIp — a proxy header present but unusable", () => {
     expect(clientIp(requestWith({ "x-real-ip": "   " }))).toBe("unknown");
   });
 
-  it("falls through to x-real-ip when x-forwarded-for has an empty leading entry", () => {
+  it("skips a blank leading entry rather than treating the whole header as unusable", () => {
     // A misconfigured proxy that prepends a separator before writing anything.
-    // The header is non-empty, so a naive check accepts it and then keys every
-    // such caller under the empty string.
-    expect(clientIp(requestWith({ "x-forwarded-for": ", 70.41.3.18", "x-real-ip": "203.0.113.9" }))).toBe(
+    // The blank entry is dropped before counting hops from the right, so the
+    // one real entry that remains is still read correctly rather than the
+    // whole header being discarded on account of it.
+    expect(clientIp(requestWith({ "x-forwarded-for": ", 70.41.3.18" }))).toBe("70.41.3.18");
+  });
+
+  it("falls back to x-real-ip only when x-forwarded-for has no usable entries at all", () => {
+    expect(clientIp(requestWith({ "x-forwarded-for": " , ", "x-real-ip": "203.0.113.9" }))).toBe(
       "203.0.113.9"
     );
   });
 
-  it("returns the placeholder when both headers are unusable", () => {
-    expect(clientIp(requestWith({ "x-forwarded-for": ", 70.41.3.18" }))).toBe("unknown");
+  it("returns the placeholder when neither header has anything usable", () => {
+    expect(clientIp(requestWith({ "x-forwarded-for": " , " }))).toBe("unknown");
   });
 });

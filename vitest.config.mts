@@ -50,6 +50,14 @@ export default defineConfig({
         },
         "src/lib/db/**": { statements: 90, branches: 85, functions: 90, lines: 90 },
         "src/lib/ratelimit/**": { statements: 100, branches: 100, functions: 100, lines: 100 },
+        // New in v4 Plan 2 (docs/adr/0035, docs/adr/0036): the Redis tier and
+        // its two consumers. Same tier as ratelimit/** — a regression here is
+        // exactly the "subtle code where a mistake is expensive" this
+        // comment already describes: a wrong fail-open/fail-closed branch is
+        // either an unbounded bill (budget) or every Writer refused (admission).
+        "src/lib/kv/**": { statements: 100, branches: 100, functions: 100, lines: 100 },
+        "src/lib/admission/**": { statements: 100, branches: 100, functions: 100, lines: 100 },
+        "src/lib/budget/**": { statements: 100, branches: 100, functions: 100, lines: 100 },
         // logger.ts's redaction allowlist and requestId.ts's header validation are
         // both structural safety guarantees (never log story text; never echo an
         // unvalidated header into a log line) rather than ordinary route glue, so

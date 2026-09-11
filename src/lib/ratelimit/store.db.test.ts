@@ -2,8 +2,16 @@ import { describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
 import { getDb } from "@/lib/db/client";
 import { rateLimitBuckets } from "@/lib/db/schema";
+import { neutralizeKvForEachTest } from "@/test/kv";
 import { consumeToken, tooManyRequests } from "./store";
 import { bucketKey, type RateLimitPolicy } from "./policy";
+
+// This file is specifically about the Postgres backend (see the comment
+// below) and asserts directly against `rate_limit_bucket` rows — it must not
+// be redirected to Redis just because a real one happens to be configured for
+// this run (docs/adr/0035's parity tests, store.parity.db.test.ts, want that;
+// this file doesn't).
+neutralizeKvForEachTest();
 
 /**
  * The limiter against a real Postgres. The property under test is that the

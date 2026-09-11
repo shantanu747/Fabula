@@ -3,12 +3,15 @@ import { auth } from "@/auth";
 import { getDb } from "@/lib/db/client";
 import { stories, storyParagraphs } from "@/lib/db/schema";
 import { isValidTargetLength } from "@/lib/story/validation";
+import { guardStoriesRead, guardStoriesWrite } from "@/lib/ratelimit/guard";
 
 export async function GET(_request: Request, { params }: RouteContext<"/api/stories/[id]">) {
   const session = await auth();
   if (!session?.user?.id) {
     return Response.json({ error: "Not authenticated" }, { status: 401 });
   }
+  const limited = await guardStoriesRead(session.user.id);
+  if (limited) return limited;
   const { id } = await params;
 
   const db = getDb();
@@ -63,6 +66,8 @@ export async function PATCH(request: Request, { params }: RouteContext<"/api/sto
   if (!session?.user?.id) {
     return Response.json({ error: "Not authenticated" }, { status: 401 });
   }
+  const limited = await guardStoriesWrite(session.user.id);
+  if (limited) return limited;
   const { id } = await params;
 
   let body: unknown;

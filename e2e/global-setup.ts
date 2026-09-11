@@ -1,9 +1,10 @@
+import { Redis } from "@upstash/redis";
 import { Pool } from "pg";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { migrate } from "drizzle-orm/node-postgres/migrator";
 import { TEST_DB_BASE_URL } from "../src/test/db-names";
 import { startMockProvider } from "../test-support/mock-provider/server";
-import { E2E_DB_NAME, MOCK_PROVIDER_PORT, NEON_FETCH_ENDPOINT } from "./constants";
+import { E2E_DB_NAME, KV_REST_API_TOKEN, KV_REST_API_URL, MOCK_PROVIDER_PORT, NEON_FETCH_ENDPOINT } from "./constants";
 
 /**
  * Runs once, in the Playwright root process, before the app's `webServer`
@@ -14,6 +15,7 @@ import { E2E_DB_NAME, MOCK_PROVIDER_PORT, NEON_FETCH_ENDPOINT } from "./constant
 export default async function globalSetup() {
   await createAndMigrateDatabase();
   await verifyNeonProxyReachable();
+  await verifyRedisReachable();
   await startMock();
 }
 
@@ -69,6 +71,25 @@ async function verifyNeonProxyReachable(): Promise<void> {
         `    -e PG_CONNECTION_STRING="postgres://postgres:postgres@host.docker.internal:5432/${E2E_DB_NAME}" \\\n` +
         `    ghcr.io/timowilhelm/local-neon-http-proxy:main\n\n` +
         `Original error: ${(err as Error).message}`
+    );
+  }
+}
+
+async function verifyRedisReachable(): Promise<void> {
+  try {
+    await new Redis({ url: KV_REST_API_URL, token: KV_REST_API_TOKEN }).ping();
+  } catch (err) {
+    throw new Error(
+      `e2e/global-setup: cannot reach Redis (via serverless-redis-http) at ${KV_REST_API_URL}. ` +
+        `admission-control.spec.ts needs it to exercise concurrency refusal at all — with none ` +
+        `reachable, admission control fails open (docs/adr/0035) and that spec's own assertion ` +
+        `never fires. Start one with:\n\n` +
+        `  docker network create fabula-net\n` +
+        `  docker run -d --name fabula-redis --network fabula-net redis:8-alpine\n` +
+        `  docker run -d --name fabula-srh --network fabula-net -p 8079:80 \\\n` +
+        `    -e SRH_MODE=env -e SRH_TOKEN=dev -e SRH_CONNECTION_STRING=redis://fabula-redis:6379 \\\n` +
+        `    hiett/serverless-redis-http:latest\n\n` +
+        `or point KV_REST_API_URL/KV_REST_API_TOKEN at your own. Original error: ${(err as Error).message}`
     );
   }
 }

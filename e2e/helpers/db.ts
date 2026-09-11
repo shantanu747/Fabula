@@ -1,6 +1,7 @@
 import { Pool } from "pg";
+import { Redis } from "@upstash/redis";
 import { TEST_DB_BASE_URL } from "../../src/test/db-names";
-import { E2E_DB_NAME } from "../constants";
+import { E2E_DB_NAME, KV_REST_API_TOKEN, KV_REST_API_URL } from "../constants";
 
 /**
  * Raw node-postgres, not the app's Neon-proxy connection — same reasoning as
@@ -23,4 +24,15 @@ export async function resetDatabase(): Promise<void> {
   await pool.query(
     `TRUNCATE TABLE "story_report", "story_paragraph", "story", "rate_limit_bucket", "session", "account", "user" CASCADE`
   );
+
+  // The same trap, in Redis (docs/adr/0035): admission/budget/rate-limit state
+  // isn't touched by the TRUNCATE above at all. A global FLUSHALL — unlike the
+  // per-worker-database Postgres truncate — is only safe because this suite
+  // runs with `workers: 1` (playwright.config.ts); it would corrupt another
+  // worker's in-progress state under real parallelism, which is exactly why
+  // the Vitest `db` project (multiple forked workers) does *not* do this — see
+  // src/test/setup-db.ts's comment. global-setup.ts's verifyRedisReachable()
+  // already fails the whole run loudly if this isn't reachable, so this call
+  // is expected to succeed whenever the suite gets this far.
+  await new Redis({ url: KV_REST_API_URL, token: KV_REST_API_TOKEN }).flushall();
 }

@@ -6,6 +6,9 @@ import { stories } from "@/lib/db/schema";
 import { insertAIParagraph, syncStoryParagraphs } from "@/lib/db/paragraphs";
 import { insertGenerationEvent } from "@/lib/db/generationEvents";
 import { guardGenerate } from "@/lib/ratelimit/guard";
+import { clientIp } from "@/lib/ratelimit/policy";
+import { acquireLease } from "@/lib/admission/lease";
+import { checkBudget, recordSpend, type BudgetIdentity } from "@/lib/budget";
 import { FIRST_CHUNK_TIMEOUT_MS, MAX_OUTPUT_TOKENS, STREAM_IDLE_TIMEOUT_MS } from "@/lib/providers/constants";
 import { getProvider, suggestAlternative } from "@/lib/providers/registry";
 import { estimateCostUsd } from "@/lib/providers/pricing";
@@ -17,6 +20,22 @@ import {
   areValidHints,
   isValidTargetLength
 } from "@/lib/story/validation";
+
+// "nodejs" is already this route's default at runtime (node_modules/next/dist/docs's
+// runtime.md — Edge is deprecated), so this is declarative rather than a behavior
+// change; stated explicitly because a deployment platform reads maxDuration from the
+// build output per route, and that reading requires the segment config to exist at
+// all. 60s exceeds FIRST_CHUNK_TIMEOUT_MS + STREAM_IDLE_TIMEOUT_MS (50s) per
+// docs/plans/v4/02-admission-control.md's stated requirement — NOTE, flagged rather
+// than silently "fixed": that sum does not include the one same-provider retry
+// attemptFirstChunk can take on a fast (non-timeout) failure, which can push a
+// legitimate pre-first-chunk retry-then-succeed sequence past 60s and into the
+// platform killing the function before the route's own timeout logic would have.
+// Raising this to comfortably exceed FIRST_CHUNK_TIMEOUT_MS*2 + STREAM_IDLE_TIMEOUT_MS
+// (~70s) is the fix if this is confirmed as a real gap rather than the plan's
+// deliberate, tighter number.
+export const runtime = "nodejs";
+export const maxDuration = 60;
 
 interface GenerateRequestBody {
   providerId: string;
@@ -156,6 +175,58 @@ export async function POST(request: Request) {
     aiPosition = input.storySoFar.length;
   }
 
+  // Admission control, then spend governance — cheapest rejection first, and
+  // both after the rate limit above but before the provider call
+  // (docs/plans/v4/02-admission-control.md). Deliberately placed here, after
+  // persistence resolves rather than immediately after the rate-limit check:
+  // from this point on, every remaining exit path funnels through finish()
+  // below, which is where the lease is released and the spend is recorded —
+  // one shared teardown for both resources rather than a second lifetime
+  // mechanism (docs/adr/0036). A 401/404/409 above never acquired a lease and
+  // has nothing to release.
+  const budgetIdentity: BudgetIdentity = session?.user?.id
+    ? { type: "user", userId: session.user.id }
+    : { type: "guest" };
+  const admissionIdentity = session?.user?.id ? `user:${session.user.id}` : `guest:${clientIp(request)}`;
+
+  const lease = await acquireLease(admissionIdentity);
+  if (!lease.acquired) {
+    log.warn(LOG_EVENTS.ADMISSION_REJECTED, { requestId, providerId: input.providerId, authenticated });
+    return withRequestId(
+      Response.json(
+        {
+          error: "You already have a story generating. Wait for it to finish before starting another.",
+          kind: "at-capacity",
+        },
+        { status: 429, headers: { "Retry-After": String(lease.retryAfterSeconds) } }
+      ),
+      requestId
+    );
+  }
+  // Narrowed to a plain reference here rather than read off `lease` inside
+  // finish() below: `lease`'s own type is still the acquire/refuse union at
+  // that closure's definition site, and TypeScript does not carry the early
+  // return's narrowing into a nested function capturing the outer variable.
+  const releaseLease = lease.release;
+
+  // hasDatabase() guarded the same way as guardGenerate's own Postgres call:
+  // guest writing has never required a database (docs/adr/0009), and spend
+  // governance must not quietly turn Postgres into a hard requirement either.
+  if (hasDatabase()) {
+    const budget = await checkBudget(getDb(), budgetIdentity);
+    if (!budget.allowed) {
+      await releaseLease();
+      log.warn(LOG_EVENTS.BUDGET_REJECTED, { requestId, providerId: input.providerId, authenticated });
+      return withRequestId(
+        Response.json(
+          { error: "Fabula has hit today's limit — try again tomorrow.", kind: "budget-exceeded" },
+          { status: 429 }
+        ),
+        requestId
+      );
+    }
+  }
+
   const startedAtMs = Date.now();
   const span = tracer.startSpan("fabula.generate", {
     attributes: {
@@ -196,6 +267,22 @@ export async function POST(request: Request) {
       span.setStatus({ code: SpanStatusCode.ERROR });
     }
     span.end();
+
+    // The lease's one release call, reached from every terminal outcome finish()
+    // itself is reached from (docs/plans/v4/02-admission-control.md) — not a
+    // second lifetime mechanism alongside finishedOnce, the same one. Idempotent,
+    // so this being called from more than one of finish()'s own call sites is not
+    // a concern (it never is, since finish() itself only ever runs once per
+    // request either way).
+    await releaseLease();
+    // Only a completed provider call has anything to bill — a pre-first-chunk or
+    // mid-stream failure (no `result`/`usage` at all) never reached the provider
+    // in a way that cost money in the first place, and must not count against the
+    // budget alongside a real generation. `persist_failed` still bills: the
+    // provider was called and paid for even though our own mirror write failed.
+    if (args.result?.usage) {
+      await recordSpend(budgetIdentity, costUsd);
+    }
 
     const logFields = {
       requestId,
