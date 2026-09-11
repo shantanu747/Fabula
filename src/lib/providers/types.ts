@@ -37,6 +37,14 @@ export interface InventedMetadata {
 export interface TokenUsage {
   inputTokens: number;
   outputTokens: number;
+  /** Prompt-cache fields (docs/adr/0040). Both additive alongside inputTokens,
+   *  never a subset of it — an adapter whose SDK reports cached tokens as a
+   *  subset of its total prompt-token count (OpenAI's `prompt_tokens`) must
+   *  subtract them out before assigning inputTokens, so this shape is uniform
+   *  across providers. Absent means the provider/model didn't report it —
+   *  never fabricated as 0 (docs/adr/0022). */
+  cacheCreationInputTokens?: number;
+  cacheReadInputTokens?: number;
 }
 
 /** What a provider adapter's raw stream reports on completion, before metadata extraction. */

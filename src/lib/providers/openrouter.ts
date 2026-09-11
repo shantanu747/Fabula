@@ -36,6 +36,13 @@ function getClient(): OpenAI {
 // diagnostic instead of one per request — see the `usage: undefined` fallback below.
 let warnedMissingUsage = false;
 
+// Separate latch from the one above: usage can be present (prompt/completion
+// token counts) while still carrying no cache breakdown at all — verified live
+// against openrouter.ai/docs (2026-09-11): Meta Llama models aren't among the
+// providers OpenRouter documents as reporting cache usage. Never fabricated as
+// 0 (docs/adr/0022) — left undefined and warned once, same shape as above.
+let warnedMissingCacheUsage = false;
+
 async function* rawOpenRouterTextStream(
   input: GenerateParagraphInput,
   trueCount: number
@@ -63,9 +70,14 @@ async function* rawOpenRouterTextStream(
     const delta = chunk.choices[0]?.delta?.content;
     if (delta) yield delta;
     if (chunk.usage) {
+      // Same subset-not-additive shape as OpenAI's usage payload (see
+      // openai.ts and TokenUsage's doc comment) — subtracted out of
+      // inputTokens for the same reason, on the models that report it at all.
+      const cachedTokens = chunk.usage.prompt_tokens_details?.cached_tokens;
       usage = {
-        inputTokens: chunk.usage.prompt_tokens,
+        inputTokens: chunk.usage.prompt_tokens - (cachedTokens ?? 0),
         outputTokens: chunk.usage.completion_tokens,
+        cacheReadInputTokens: cachedTokens,
       };
     }
   }
@@ -75,6 +87,12 @@ async function* rawOpenRouterTextStream(
     console.warn(
       "[openrouter] no token usage in the stream despite stream_options.include_usage — " +
         "cost/usage attributes will be omitted for this provider until it's supported upstream."
+    );
+  } else if (usage?.cacheReadInputTokens === undefined && !warnedMissingCacheUsage) {
+    warnedMissingCacheUsage = true;
+    console.warn(
+      `[openrouter] ${OPENROUTER_MODEL} does not report cache usage — cache read/write cost ` +
+        "will be omitted for this provider until it's supported upstream."
     );
   }
 

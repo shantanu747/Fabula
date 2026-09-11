@@ -61,15 +61,37 @@ describe("windowStoryParagraphs", () => {
     expect(result[0].text).not.toContain(OMISSION_NOTE);
   });
 
-  it("keeps the anchor even when it alone exceeds the whole budget", () => {
-    // Losing the premise would be worse than overshooting the budget, so the
-    // anchor is not negotiable.
+  it("truncates an anchor that alone exceeds the whole budget", () => {
+    // A single oversized anchor must not bypass the budget entirely (the
+    // latent budgetForRest-goes-negative bug) — it's truncated like anything
+    // else, with room left for the note.
     const huge = para("writer", "a".repeat(CONTEXT_WINDOW_CHAR_BUDGET + 500));
     const result = windowStoryParagraphs([huge, para("ai", "recent")]);
 
-    expect(result).toHaveLength(1);
-    expect(result[0].text).toContain(huge.text);
+    expect(result[0].text.length).toBeLessThanOrEqual(CONTEXT_WINDOW_CHAR_BUDGET);
+    const noteIndex = result[0].text.indexOf(OMISSION_NOTE);
+    const anchorBody = (noteIndex === -1 ? result[0].text : result[0].text.slice(0, noteIndex)).trimEnd();
+    expect(huge.text.startsWith(anchorBody)).toBe(true);
     expect(result[0].text).toContain(OMISSION_NOTE);
+  });
+
+  it("holds the same boundary across many turns once the budget is exceeded", () => {
+    // The whole point of the chunked windowing: turn N and turn N+1 share a
+    // byte-identical prefix so a real prompt-cache hit is possible. A naive
+    // greedy re-fit-to-budget-every-turn would move `result[0]`'s note-adjacent
+    // boundary (and thus the whole tail) on nearly every one of these turns.
+    const full = story(60, 300); // well past the 12k budget
+    const boundaries = new Set<string>();
+
+    for (let n = 10; n <= full.length; n++) {
+      const result = windowStoryParagraphs(full.slice(0, n));
+      // Identify this turn's boundary by the first kept "rest" paragraph's text
+      // (or "anchor-only" when nothing but the anchor survived).
+      boundaries.add(result.length > 1 ? result[1].text : "anchor-only");
+    }
+
+    // Many turns collapse onto a handful of distinct boundaries, not one per turn.
+    expect(boundaries.size).toBeLessThan(full.length / 3);
   });
 
   /**
@@ -95,24 +117,75 @@ describe("windowStoryParagraphs", () => {
           expect(result.length).toBeGreaterThanOrEqual(1);
           expect(result.length).toBeLessThanOrEqual(paragraphs.length);
 
-          // The anchor is always first and always the real opening paragraph.
-          expect(result[0].text.startsWith(paragraphs[0].text)).toBe(true);
+          // The anchor is always first and always derived from the real opening
+          // paragraph — verbatim if it fit, a truncated prefix of it otherwise.
+          const anchorBody = result[0].text.endsWith(OMISSION_NOTE)
+            ? result[0].text.slice(0, -OMISSION_NOTE.length)
+            : result[0].text;
+          expect(paragraphs[0].text.startsWith(anchorBody)).toBe(true);
           expect(result[0].author).toBe(paragraphs[0].author);
 
           // Everything after the anchor is an unbroken, in-order tail.
           const tail = result.slice(1);
           expect(tail).toEqual(paragraphs.slice(paragraphs.length - tail.length));
 
-          // Budget holds, except for the deliberate anchor overshoot above.
+          // Budget holds — the anchor-truncation fix means there is no longer a
+          // deliberate overshoot case, just a little slack for the note itself.
           const total = result.reduce((sum, p) => sum + p.text.length, 0);
-          const anchorFloor = paragraphs[0].text.length + OMISSION_NOTE.length + 4;
-          expect(total).toBeLessThanOrEqual(Math.max(CONTEXT_WINDOW_CHAR_BUDGET, anchorFloor));
+          expect(total).toBeLessThanOrEqual(CONTEXT_WINDOW_CHAR_BUDGET + OMISSION_NOTE.length);
 
           // The note appears exactly when something was actually dropped.
           expect(result[0].text.includes(OMISSION_NOTE)).toBe(result.length < paragraphs.length);
         }
       ),
       { numRuns: 200 }
+    );
+  });
+
+  /**
+   * The property the whole chunked-windowing change exists for. A shift (the
+   * kept tail loses its shared prefix with the previous turn) has to happen
+   * *sometimes* — the window cannot grow forever — so "always a prefix" is
+   * not a true property and isn't asserted. What chunked re-anchoring actually
+   * buys is that shifts are rare: across a growing story, turn N and turn N+1
+   * share a byte-identical prefix on the overwhelming majority of turns, not
+   * on roughly zero of them the way the old greedy-refit-every-turn version
+   * did. This walks one generated story incrementally, turn by turn, and
+   * asserts that bound directly, across many generated shapes.
+   */
+  it("keeps turn-to-turn prefix shifts rare, for any story shape", () => {
+    fc.assert(
+      fc.property(
+        fc.array(
+          fc.record({
+            author: fc.constantFrom<"writer" | "ai">("writer", "ai"),
+            text: fc.string({ minLength: 1, maxLength: 1500 }),
+          }),
+          { minLength: 10, maxLength: 60 }
+        ),
+        (paragraphs) => {
+          const stripNote = (p: StoryParagraph): StoryParagraph =>
+            p.text.endsWith(OMISSION_NOTE) ? { ...p, text: p.text.slice(0, -OMISSION_NOTE.length) } : p;
+          const isPrefixOf = (a: StoryParagraph[], b: StoryParagraph[]) =>
+            a.length <= b.length && a.every((p, i) => p.text === b[i].text && p.author === b[i].author);
+
+          let prevStripped = windowStoryParagraphs(paragraphs.slice(0, 1)).map(stripNote);
+          let shifts = 0;
+          const turns = paragraphs.length - 1;
+
+          for (let n = 2; n <= paragraphs.length; n++) {
+            const nextStripped = windowStoryParagraphs(paragraphs.slice(0, n)).map(stripNote);
+            if (!isPrefixOf(prevStripped, nextStripped)) shifts++;
+            prevStripped = nextStripped;
+          }
+
+          // Generous bound (a quarter of turns): the point is "rare", not a
+          // tight number tied to LOW_WATER_RATIO, which would just be
+          // re-testing the constant rather than the property it protects.
+          expect(shifts).toBeLessThanOrEqual(Math.ceil(turns / 4) + 1);
+        }
+      ),
+      { numRuns: 300 }
     );
   });
 });
@@ -278,14 +351,33 @@ describe("generateWithProvider", () => {
 });
 
 describe("windowStoryParagraphs — the single-paragraph edge", () => {
-  it("adds no omission note when there was nothing after the anchor to omit", () => {
-    // A lone opening paragraph over budget: the anchor is kept whole and the
-    // note would be a lie, since no later paragraph was dropped.
+  it("keeps a single oversized rest paragraph without a note when nothing could be dropped", () => {
+    // rest has exactly one paragraph, and it alone exceeds budgetForRest. The
+    // sticky algorithm can never advance its boundary past 0 for a
+    // single-element rest (its "boundary < i" guard is never true when i is
+    // also 0), so the paragraph is kept whole — nothing was actually dropped,
+    // so a note here would be a lie, same reasoning as the anchor-only edge
+    // case below.
+    const anchor = para("writer", "short anchor");
+    const hugeRest = para("ai", "b".repeat(CONTEXT_WINDOW_CHAR_BUDGET + 500));
+
+    const result = windowStoryParagraphs([anchor, hugeRest]);
+
+    expect(result).toHaveLength(2);
+    expect(result[0].text).toBe(anchor.text);
+    expect(result[0].text).not.toContain(OMISSION_NOTE);
+    expect(result[1]).toEqual(hugeRest);
+  });
+
+  it("truncates and notes a lone opening paragraph that alone exceeds budget", () => {
+    // No second paragraph exists to drop, but the anchor itself is still over
+    // budget — the truncate-the-anchor fix applies even with nothing after it.
     const only = [para("writer", "a".repeat(CONTEXT_WINDOW_CHAR_BUDGET + 100))];
 
     const result = windowStoryParagraphs(only);
 
     expect(result).toHaveLength(1);
-    expect(result[0].text).not.toContain(OMISSION_NOTE);
+    expect(result[0].text.length).toBeLessThanOrEqual(CONTEXT_WINDOW_CHAR_BUDGET);
+    expect(result[0].text).toContain(OMISSION_NOTE);
   });
 });

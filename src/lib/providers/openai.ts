@@ -59,9 +59,21 @@ async function* rawOpenAITextStream(
     const delta = chunk.choices[0]?.delta?.content;
     if (delta) yield delta;
     if (chunk.usage) {
+      // Caching here is automatic (no request-side flag) once the stable-prefix
+      // windowing in prompt.ts makes a turn's messages a pure append of the
+      // previous turn's (docs/adr/0040) — this just reads the result back.
+      // OpenAI's `cached_tokens` is a SUBSET of `prompt_tokens`, unlike
+      // Anthropic's cache fields which are additive alongside input_tokens
+      // (see TokenUsage's doc comment) — subtract it out here so inputTokens
+      // means the same "fresh, uncached" thing for every provider. Left as
+      // `undefined` (not 0) whenever the API omits the details object
+      // entirely — a real reported 0 (cache supported, just no hit this turn)
+      // stays 0, distinct from "not reported at all" (docs/adr/0022).
+      const cachedTokens = chunk.usage.prompt_tokens_details?.cached_tokens;
       usage = {
-        inputTokens: chunk.usage.prompt_tokens,
+        inputTokens: chunk.usage.prompt_tokens - (cachedTokens ?? 0),
         outputTokens: chunk.usage.completion_tokens,
+        cacheReadInputTokens: cachedTokens,
       };
     }
   }

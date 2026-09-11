@@ -39,11 +39,28 @@ function normalizeModelId(model: string): string {
   return model.replace(/-\d{4}-\d{2}-\d{2}$/, "");
 }
 
+/**
+ * Both verified live 2026-09-11. Anthropic's 5-minute ephemeral cache write is
+ * 1.25x base input price, cache read is 0.1x
+ * (platform.claude.com/docs/en/about-claude/pricing#prompt-caching — this app
+ * only ever uses the default 5m TTL, never the 1h/2x tier, see docs/adr/0040).
+ * OpenAI's cached-input rate for gpt-5-mini ($0.025 vs. $0.25 base,
+ * developers.openai.com/api/docs/pricing) is also exactly 0.1x of base input —
+ * coincidentally identical to Anthropic's, so one read multiplier serves both
+ * providers. OpenAI has no separate cache-write charge (caching there is
+ * automatic and the write itself isn't billed), which is why
+ * cacheCreationInputTokens stays undefined out of that adapter.
+ */
+const CACHE_WRITE_MULTIPLIER = 1.25;
+const CACHE_READ_MULTIPLIER = 0.1;
+
 export function estimateCostUsd(model: string, usage: TokenUsage): number | undefined {
   const pricing = PRICING[model] ?? PRICING[normalizeModelId(model)];
   if (!pricing) return undefined;
   return (
     (usage.inputTokens / 1_000_000) * pricing.inputPerMTok +
-    (usage.outputTokens / 1_000_000) * pricing.outputPerMTok
+    (usage.outputTokens / 1_000_000) * pricing.outputPerMTok +
+    ((usage.cacheReadInputTokens ?? 0) / 1_000_000) * pricing.inputPerMTok * CACHE_READ_MULTIPLIER +
+    ((usage.cacheCreationInputTokens ?? 0) / 1_000_000) * pricing.inputPerMTok * CACHE_WRITE_MULTIPLIER
   );
 }

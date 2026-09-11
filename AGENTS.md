@@ -41,6 +41,10 @@ The app must remain model-agnostic. All provider calls go through a single inter
 interface TokenUsage {
   inputTokens: number
   outputTokens: number
+  // Prompt-cache fields (docs/adr/0040) — additive alongside inputTokens, never a
+  // subset of it. Absent means the provider/model didn't report it, never fabricated as 0.
+  cacheCreationInputTokens?: number
+  cacheReadInputTokens?: number
 }
 
 interface GenerationResult {

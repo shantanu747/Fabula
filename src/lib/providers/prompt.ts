@@ -21,13 +21,66 @@ export function buildSystemPrompt(): string {
   ].join("\n");
 }
 
+const OMISSION_NOTE = "\n\n[...earlier paragraphs continue here, omitted for length...]";
+
+/**
+ * Once the budget is exceeded, the kept tail is re-fit not to the full
+ * rest-budget but to this fraction of it, and that boundary then holds steady
+ * across many subsequent turns instead of re-fitting to the budget line on
+ * every single turn. See docs/adr/0040-stable-prefix-windowing-for-prompt-caching.md:
+ * the slack this leaves is what lets turn N and turn N+1 share a byte-identical
+ * prefix (and therefore a real prompt-cache hit) for many turns in a row, at the
+ * cost of sending somewhat less context than the budget technically allows.
+ */
+const LOW_WATER_RATIO = 0.6;
+
+/**
+ * The anchor cannot be allowed to blow the whole budget by itself (the latent
+ * bug this replaces: `budgetForRest` went negative and the rest-budget check
+ * was silently skipped). Room is reserved for the note that always follows a
+ * truncated anchor, so anchor + note still fits inside the budget.
+ */
+function truncatedAnchorText(text: string): string {
+  if (text.length <= CONTEXT_WINDOW_CHAR_BUDGET) return text;
+  return text.slice(0, Math.max(0, CONTEXT_WINDOW_CHAR_BUDGET - OMISSION_NOTE.length));
+}
+
+/**
+ * Deterministic replay, not remembered state: `rest` is the complete history —
+ * nothing is ever edited out of the middle by the client — so re-simulating
+ * forward from index 0 on every call reconstructs the same boundary a stateful
+ * version would have remembered. Turn N's simulation and turn N+1's simulation
+ * walk an identical prefix of `rest` (everything already present last turn) and
+ * only diverge at the newly appended tail, so the boundary this returns only
+ * moves when the kept window has actually outgrown the (full) budget again —
+ * not on every turn that merely exceeds the low-water mark, which is what made
+ * the old greedy-refit-every-turn version slide by one paragraph each time.
+ */
+function stickyStartIndex(rest: StoryParagraph[], budgetForRest: number): number {
+  const low = budgetForRest * LOW_WATER_RATIO;
+  let boundary = 0;
+  let keptSum = 0;
+  for (let i = 0; i < rest.length; i++) {
+    keptSum += rest[i].text.length;
+    if (keptSum > budgetForRest) {
+      while (boundary < i && keptSum > low) {
+        keptSum -= rest[boundary].text.length;
+        boundary++;
+      }
+    }
+  }
+  return boundary;
+}
+
 /**
  * Rolling context buffer: the client always sends (and displays) the full story;
  * this only bounds what's sent to the model on each generation call. Keeps the
  * opening paragraph as an anchor (it carries the theme/characters/premise the rest
- * of the story depends on) plus as many of the most recent paragraphs as fit the
- * remaining budget — not naive from-the-end truncation, which would risk losing
- * the premise on a long story. Truncation only, no summarization (v1 scope).
+ * of the story depends on) plus a chunked, sticky-boundary tail of the most
+ * recent paragraphs — not naive from-the-end truncation, which would risk losing
+ * the premise on a long story, and not a boundary that re-fits every turn, which
+ * would defeat prompt caching (docs/adr/0040). Truncation only, no summarization
+ * (v1 scope).
  */
 export function windowStoryParagraphs(paragraphs: StoryParagraph[]): StoryParagraph[] {
   if (paragraphs.length === 0) return paragraphs;
@@ -35,28 +88,24 @@ export function windowStoryParagraphs(paragraphs: StoryParagraph[]): StoryParagr
   const totalLength = paragraphs.reduce((sum, p) => sum + p.text.length, 0);
   if (totalLength <= CONTEXT_WINDOW_CHAR_BUDGET) return paragraphs;
 
-  const [anchor, ...rest] = paragraphs;
-  const budgetForRest = CONTEXT_WINDOW_CHAR_BUDGET - anchor.text.length;
+  const [rawAnchor, ...rest] = paragraphs;
+  const anchorText = truncatedAnchorText(rawAnchor.text);
+  const anchorTruncated = anchorText.length !== rawAnchor.text.length;
+  const budgetForRest = Math.max(0, CONTEXT_WINDOW_CHAR_BUDGET - anchorText.length);
 
-  const kept: StoryParagraph[] = [];
-  let used = 0;
-  for (let i = rest.length - 1; i >= 0; i--) {
-    const candidate = rest[i];
-    if (used + candidate.text.length > budgetForRest) break;
-    kept.unshift(candidate);
-    used += candidate.text.length;
-  }
+  const startIndex = stickyStartIndex(rest, budgetForRest);
+  const kept = rest.slice(startIndex);
 
-  const omitted = rest.length - kept.length;
-  const anchorWithNote: StoryParagraph =
-    omitted > 0
-      ? {
-          ...anchor,
-          text: `${anchor.text}\n\n[...earlier paragraphs continue here, omitted for length...]`,
-        }
-      : anchor;
+  // Whenever this function got past the whole-story fast path above, the rest
+  // alone already exceeds budgetForRest (by construction — see the arithmetic
+  // in the ADR), so startIndex > 0 unless the anchor itself was truncated
+  // instead. Either way there is always something to note here.
+  const anchor: StoryParagraph = {
+    ...rawAnchor,
+    text: anchorTruncated || startIndex > 0 ? `${anchorText}${OMISSION_NOTE}` : anchorText,
+  };
 
-  return [anchorWithNote, ...kept];
+  return [anchor, ...kept];
 }
 
 export interface ChatMessage {
