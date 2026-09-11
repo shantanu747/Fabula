@@ -53,3 +53,30 @@ test("toggling sharing makes a story visible in another account's feed, and unsh
 
   await contextB.close();
 });
+
+// docs/adr/0039: Share moved from a /library-only link to a toggle on the
+// canvas header itself.
+test("toggling sharing from the story canvas makes it visible in another account's feed", async ({
+  page,
+  browser,
+}) => {
+  await signUp(page, uniqueEmail(), { name: "Writer C" });
+
+  await setMockScript(streamResponse(["A canvas-shared beginning."]));
+  await startStory(page, { theme: "a lighthouse at dusk" });
+  await waitForAiParagraph(page, 1);
+
+  // Still on /story — the first AI turn persisted the story (ensureStoryId),
+  // so the header's Share control is already live without a trip to /library.
+  await page.getByRole("button", { name: "Share to feed" }).click();
+  await expect(page.getByRole("button", { name: "Shared to feed" })).toBeVisible();
+
+  const contextB = await browser.newContext();
+  const pageB = await contextB.newPage();
+  await signUp(pageB, uniqueEmail(), { name: "Writer D" });
+
+  await pageB.getByRole("link", { name: "Feed" }).click();
+  await expect(pageB.getByRole("link").filter({ hasText: "a lighthouse at dusk" })).toBeVisible();
+
+  await contextB.close();
+});
