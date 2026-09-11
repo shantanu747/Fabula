@@ -21,6 +21,7 @@
     "test:e2e:soak": "playwright test --config e2e/playwright.config.ts --repeat-each=10",
     "test:scripts": "vitest run --config vitest.scripts.config.mts",
     "bundle-budget": "tsx scripts/bundle-budget.mts",
+    "bench": "node --env-file-if-exists=.env.local ./node_modules/.bin/tsx bench/harness.ts",
     "db:generate": "node --env-file=.env.local ./node_modules/.bin/drizzle-kit generate",
     "db:migrate": "node --env-file=.env.local ./node_modules/.bin/drizzle-kit migrate"
   },
