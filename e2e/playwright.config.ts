@@ -3,6 +3,8 @@ import {
   APP_PORT,
   BASE_URL,
   DATABASE_URL,
+  KV_REST_API_TOKEN,
+  KV_REST_API_URL,
   MOCK_PROVIDER_URL,
   NEON_FETCH_ENDPOINT,
 } from "./constants";
@@ -95,6 +97,8 @@ export default defineConfig({
       OPENROUTER_API_KEY: "e2e-key",
       DATABASE_URL,
       NEON_FETCH_ENDPOINT,
+      KV_REST_API_URL,
+      KV_REST_API_TOKEN,
       AUTH_SECRET: "e2e-fixed-test-secret-do-not-use-in-prod",
       AUTH_URL: BASE_URL,
       NEXTAUTH_URL: BASE_URL,

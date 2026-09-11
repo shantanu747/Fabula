@@ -42,6 +42,9 @@ Fill in `.env.local`:
 | `DATABASE_URL` | Accounts, saved stories, shared feed |
 | `AUTH_SECRET` | Auth.js session/JWT signing — generate with `npx auth secret` |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | "Continue with Google" (email/password works without it) |
+| `KV_REST_API_URL`, `KV_REST_API_TOKEN` | Redis-backed concurrency admission and daily spend caps ([`docs/adr/0035`](docs/adr/0035-redis-as-a-non-authoritative-tier.md)) — entirely optional, the app falls back to Postgres-only rate limiting with no caps beyond that |
+| `TRUSTED_PROXY_HOP_COUNT` | Only if self-hosting behind a proxy other than Vercel's — defaults to 1 |
+| `CRON_SECRET` | Only if `vercel.json`'s `rate_limit_bucket` pruning cron is scheduled |
 
 If you're using a database, generate and apply the schema:
 
@@ -113,6 +116,32 @@ NEON_FETCH_ENDPOINT="http://db.localtest.me:4444/sql" npm run dev
 This is worth the setup: the test suite runs on `node-postgres`, and this is the
 only way to exercise the driver that production actually uses. See
 [`docs/adr/0014`](docs/adr/0014-test-infrastructure-and-driver-parity.md).
+
+### Developing against local Redis
+
+Optional for the app itself — concurrency admission and daily spend caps use Redis
+([`docs/adr/0035`](docs/adr/0035-redis-as-a-non-authoritative-tier.md)), but `npm run dev`
+runs without it, falling back to Postgres-only rate limiting with no caps beyond that. The
+production client (`@upstash/redis`) speaks Upstash's HTTP REST protocol, not the Redis wire
+protocol, so a local `redis-server` needs the same kind of protocol proxy the Neon HTTP proxy
+gives Postgres above:
+
+```bash
+docker network create fabula-net    # only needed once
+docker run -d --name fabula-redis --network fabula-net redis:8-alpine
+docker run -d --name fabula-srh --network fabula-net -p 8079:80 \
+  -e SRH_MODE=env -e SRH_TOKEN=dev -e SRH_CONNECTION_STRING=redis://fabula-redis:6379 \
+  hiett/serverless-redis-http:latest
+
+KV_REST_API_URL="http://localhost:8079" KV_REST_API_TOKEN="dev" npm run dev
+```
+
+Required, not optional, for two things: `src/lib/ratelimit/store.parity.db.test.ts` and
+`src/lib/admission/lease.db.test.ts` (they fail loudly with setup instructions if
+`KV_REST_API_URL` isn't set, rather than silently skipping), and `npm run test:e2e`
+(`admission-control.spec.ts` needs a real Redis to exercise concurrency refusal at all —
+`e2e/global-setup.ts` checks reachability up front, same treatment as the Postgres/Neon-proxy
+checks above, and fails with the same docker commands if it can't connect).
 
 ### Observability locally
 

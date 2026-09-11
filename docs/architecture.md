@@ -28,7 +28,16 @@ src/
     api/feed/[id]/route.ts                          # GET — one shared story, read-only
     api/auth/[...nextauth]/route.ts                   # Auth.js handlers
     api/auth/register/route.ts                          # Email/password signup (hashes + inserts user)
+    api/cron/prune/route.ts                               # CRON_SECRET-guarded rate_limit_bucket pruning
   lib/
+    kv/
+      client.ts                # getKv()/hasKv() — lazy Redis singleton, mirrors db/client.ts (docs/adr/0035)
+    admission/
+      lease.ts                 # Per-identity + global concurrency leases (docs/adr/0036)
+    budget/
+      index.ts                 # Daily spend caps, reconciled from generation_event (docs/adr/0036)
+    ratelimit/
+      policy.ts, store.ts, guard.ts  # Token-bucket rate limiting — Postgres (docs/adr/0015) + Redis (docs/adr/0035)
     providers/
       types.ts             # LLMProvider interface, GenerateParagraphInput, StoryParagraph, InventedMetadata
       constants.ts           # MAX_OUTPUT_TOKENS, CONTEXT_WINDOW_CHAR_BUDGET
