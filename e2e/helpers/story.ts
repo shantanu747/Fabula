@@ -12,8 +12,25 @@ export function paragraphArticles(page: Page) {
   return storyLog(page).getByRole("article");
 }
 
+/** The start flow's step rail (src/app/page.tsx): five buttons in the footer,
+ *  each a screen. Only the current screen's fields are actionable — the other
+ *  panels are off-stage and `inert` — so a spec reaches a field by going to its
+ *  step first. */
+export type StartStep = "Scene" | "People" | "Opening" | "Voice" | "Length";
+
+export async function goToStartStep(page: Page, step: StartStep): Promise<void> {
+  await page.getByRole("button", { name: step, exact: true }).click();
+}
+
+/** The forward action on the last step. Lands on /story. */
+export async function beginStory(page: Page): Promise<void> {
+  await goToStartStep(page, "Length");
+  await page.getByRole("button", { name: /Begin the story/ }).click();
+  await page.waitForURL("**/story");
+}
+
 /**
- * Fills the home page's optional fields and starts the story — Writer-first if
+ * Fills the start flow's optional fields and starts the story — Writer-first if
  * `openingLines` is given (submitAndContinue), AI-first otherwise
  * (generateNext). Lands on /story; does not wait for the AI paragraph to
  * settle — call waitForAiParagraph for that.
@@ -24,10 +41,15 @@ export async function startStory(
 ): Promise<void> {
   await page.goto("/");
   if (opts?.theme) await page.getByLabel("Genre or theme").fill(opts.theme);
-  if (opts?.characters) await page.getByLabel("Starter characters").fill(opts.characters);
-  if (opts?.openingLines) await page.getByLabel("Opening lines").fill(opts.openingLines);
-  await page.getByRole("button", { name: /Let's write/ }).click();
-  await page.waitForURL("**/story");
+  if (opts?.characters) {
+    await goToStartStep(page, "People");
+    await page.getByLabel("Starter characters").fill(opts.characters);
+  }
+  if (opts?.openingLines) {
+    await goToStartStep(page, "Opening");
+    await page.getByLabel("Opening lines").fill(opts.openingLines);
+  }
+  await beginStory(page);
 }
 
 /** Fills the Writer's compose box on /story and submits — Writer paragraph
@@ -35,7 +57,7 @@ export async function startStory(
  *  paragraph to settle — call waitForAiParagraph for that. */
 export async function writeParagraph(page: Page, text: string): Promise<void> {
   await page.getByLabel("Write the next paragraph").fill(text);
-  await page.getByRole("button", { name: "Continue the Story" }).click();
+  await page.getByRole("button", { name: "Add & continue" }).click();
 }
 
 /** Waits for exactly `n` settled paragraphs in the log — not waitForTimeout,

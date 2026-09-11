@@ -16,15 +16,17 @@ export function ReportButton({ storyId }: { storyId: string }) {
   }
 
   if (state === "sent") {
-    return <span className="text-xs text-muted">Reported — thanks for flagging this.</span>;
+    return <span className="text-[11.5px] italic text-muted">Reported — thanks for flagging this.</span>;
   }
 
+  // An underlined 11.5px text button (board 1e), not a pill. The handoff sets it
+  // at 0.42 alpha; --muted is the nearest step that clears the contrast gate.
   return (
     <button
       type="button"
       onClick={report}
       disabled={state === "sending"}
-      className="tap-target rounded-full border border-border px-3 py-1.5 text-xs font-medium text-muted transition-colors hover:border-accent hover:text-accent disabled:opacity-40"
+      className="btn btn-text tap-target text-[11.5px] underline decoration-muted/50 underline-offset-2"
     >
       {state === "sending" ? "Reporting…" : "Report"}
     </button>

@@ -2,7 +2,13 @@ import { test, expect } from "@playwright/test";
 import { resetDatabase } from "../helpers/db";
 import { resetMockScript, setMockScript, streamResponse } from "../helpers/mock";
 import { signUp, uniqueEmail } from "../helpers/auth";
-import { paragraphArticles, waitForAiParagraph, writeParagraph } from "../helpers/story";
+import {
+  beginStory,
+  goToStartStep,
+  paragraphArticles,
+  waitForAiParagraph,
+  writeParagraph,
+} from "../helpers/story";
 
 // PRD §8 criterion 2, resume half.
 
@@ -21,12 +27,14 @@ test("a saved story resumes with every paragraph, its metadata, and appends at t
   await setMockScript(streamResponse(["The first reply."]));
   await page.goto("/");
   await page.getByLabel("Genre or theme").fill("a locked-room mystery");
+  await goToStartStep(page, "People");
   await page.getByLabel("Starter characters").fill("Odile, a night-shift clerk");
-  await page.getByRole("button", { name: /Let's write/ }).click();
-  await page.waitForURL("**/story");
-  await waitForAiParagraph(page, 1); // no opening lines given, so the AI goes first
-
+  // Target length is chosen here, on the start flow's last step; the canvas
+  // shows it in the arc rail ("n of ~target") but has no control for it.
+  await goToStartStep(page, "Length");
   const originalTargetLength = await page.locator("#target-length").inputValue();
+  await beginStory(page);
+  await waitForAiParagraph(page, 1); // no opening lines given, so the AI goes first
 
   await setMockScript(streamResponse(["The second reply."]));
   await writeParagraph(page, "Odile counted the till twice.");
@@ -54,7 +62,7 @@ test("a saved story resumes with every paragraph, its metadata, and appends at t
 
   await expect(freshPage.getByText("a locked-room mystery")).toBeVisible();
   await expect(freshPage.getByText("Odile, a night-shift clerk")).toBeVisible();
-  await expect(freshPage.locator("#target-length")).toHaveValue(originalTargetLength);
+  await expect(freshPage.getByText(`3 of ~${originalTargetLength}`, { exact: true })).toBeVisible();
 
   // Continue writing: the new paragraph must land at the end, not duplicate
   // anything, and not overwrite position 0.
