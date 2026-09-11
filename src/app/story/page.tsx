@@ -85,7 +85,9 @@ function StoryPage() {
     selectedProviderId,
     generation,
     storyId,
+    isShared,
     setSelectedProviderId,
+    setShared,
     submitAndContinue,
     generateNext,
     switchProviderAndRetry,
@@ -118,6 +120,7 @@ function StoryPage() {
           invented: data.invented,
           generation: { kind: "idle" },
           storyId: data.id,
+          isShared: data.isShared,
         });
       });
     return () => {
@@ -168,22 +171,33 @@ function StoryPage() {
     }
   }
 
-  // Save and Share are the header's promises to a Writer, not new state. For a
-  // guest, Save is sign-in — persistence is automatic once signed in (docs/adr/0009),
-  // and the guest's paragraphs survive the client-side navigation. Share lives
-  // in the library, where the toggle is, so it appears once there is a library.
+  // Save is the header's promise to a Writer, not new state. For a guest,
+  // Save is sign-in — persistence is automatic once signed in (docs/adr/0009),
+  // and the guest's paragraphs survive the client-side navigation.
   const saveAction = isAuthenticated ? (
-    storyId ? <span className="text-[12px] italic text-muted">Saved</span> : null
+    // Hidden below `lg`: the canvas header holds mark, divider, theme, count,
+    // Saved, Share, New story, My library, Feed, Sign out, and the theme
+    // already truncates at tablet widths — "Saved" is the lowest-value item
+    // to drop first (no board covers this width).
+    storyId ? <span className="hidden text-[12px] italic text-muted lg:inline">Saved</span> : null
   ) : (
     <Link href="/login" className={NAV_LINK}>
       Sign in to save
     </Link>
   );
-  const shareAction = isAuthenticated ? (
-    <Link href="/library" className={NAV_LINK}>
-      Share
-    </Link>
-  ) : null;
+  // Share toggles isShared directly from the canvas (docs/adr/0039) — same
+  // control, copy, and optimistic-then-PATCH behavior as /library's
+  // ShareToggle. Only meaningful once the story is persisted.
+  const shareAction =
+    isAuthenticated && storyId ? (
+      <button
+        type="button"
+        onClick={() => setShared(!isShared)}
+        className={isShared ? "btn btn-primary btn-xs tap-target" : "btn btn-secondary btn-xs tap-target"}
+      >
+        {isShared ? "Shared to feed" : "Share to feed"}
+      </button>
+    ) : null;
   const newStoryAction = (
     <Link href="/" onClick={resetStory} className="btn btn-primary btn-xs tap-target">
       New story
