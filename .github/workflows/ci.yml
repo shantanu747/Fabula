@@ -263,6 +263,11 @@ jobs:
       NEON_FETCH_ENDPOINT: http://db.localtest.me:4444/sql
       AUTH_SECRET: ci-placeholder-secret
       E2E_NEON_PROXY_HOST: db.localtest.me:4444
+      # Same requirement as the e2e job's: e2e/global-setup.ts (docs/adr/0035,
+      # docs/adr/0036) checks Redis reachability for every e2e run, this job
+      # included, not just admission-control's own spec.
+      KV_REST_API_URL: http://localhost:8079
+      KV_REST_API_TOKEN: ci-placeholder-token
     services:
       postgres:
         image: postgres:17-alpine
@@ -282,6 +287,21 @@ jobs:
           PG_CONNECTION_STRING: postgres://postgres:postgres@postgres:5432/fabula_e2e
         ports:
           - 4444:4444
+      redis:
+        image: redis:8-alpine
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      serverless-redis-http:
+        image: hiett/serverless-redis-http:latest
+        env:
+          SRH_MODE: env
+          SRH_TOKEN: ci-placeholder-token
+          SRH_CONNECTION_STRING: redis://redis:6379
+        ports:
+          - 8079:80
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
