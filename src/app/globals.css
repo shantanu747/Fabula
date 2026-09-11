@@ -1,53 +1,353 @@
 @import "tailwindcss";
 
+/*
+ * Fabula theme — Classical design system.
+ *
+ * Source of truth for every value here: design_handoff_fabula_redesign/README.md
+ * ("Design tokens") and design_handoff_fabula_redesign/classical/styles.css.
+ * Editorial print: one warm ground, hairlines instead of boxes, color applied
+ * as stroke and never as fill. There is no second surface (no --card), no
+ * tinted AI block (no --ai / --ai-soft), and no sans-serif anywhere.
+ *
+ * Alpha-based dividers and muted text (rgba on the ink color) are deliberate:
+ * they sit correctly on the single ground without a per-surface variant.
+ */
 :root {
-  --background: #faf7f1;
-  --foreground: #2a241c;
-  --card: #ffffff;
-  --border: #e7e0d3;
-  /* Darkened from #83786a (2026-09-07, docs/adr/0027) — the original fell
-     short of WCAG AA 4.5:1 against --background/--card/--ai-soft (measured
-     3.79-4.32). This clears all three with margin (4.51-5.14). */
-  --muted: #766c60;
-  --accent: #b0501f;
-  --accent-foreground: #fff8f0;
-  --ai: #4a5a4e;
-  --ai-soft: #eef1ec;
-}
-
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --color-card: var(--card);
-  --color-border: var(--border);
-  --color-muted: var(--muted);
-  --color-accent: var(--accent);
-  --color-accent-foreground: var(--accent-foreground);
-  --color-ai: var(--ai);
-  --color-ai-soft: var(--ai-soft);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-  --font-serif: var(--font-story-serif);
+  --background: #f3f2f2;
+  --foreground: #201f1d;
+  /* Running story prose. Same as --foreground on light; a half-step softer on
+     dark (README: "prose sets at #e6e3de"). */
+  --prose: #201f1d;
+  --border: rgba(32, 31, 29, 0.16);
+  /* The handoff specifies 0.55 alpha and claims 4.9:1, but 0.55 composites to
+     #7f7e7d on this ground, which axe measures at 3.62:1 — below AA and below
+     the bar the accessibility e2e spec enforces. 0.66 composites to #686765
+     (5.06:1). See docs/adr/0029. */
+  --muted: rgba(32, 31, 29, 0.66);
+  /* --accent is 3.0:1 against the ground: chrome, strokes and large type only.
+     Any accent-colored text at paragraph size must use --accent-text (4.6:1). */
+  --accent: #b68235;
+  --accent-text: #8a6224;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #171310;
-    --foreground: #efe8dc;
-    --card: #201b16;
-    --border: #382f25;
-    --muted: #a49a8a;
-    --accent: #e0894c;
-    --accent-foreground: #201205;
-    --ai: #9db3a3;
-    --ai-soft: #22271f;
+    --background: #191817;
+    --foreground: #eceae6;
+    --prose: #e6e3de;
+    --border: rgba(236, 234, 230, 0.13);
+    --muted: rgba(236, 234, 230, 0.55);
+    --accent: #e1ad66;
+    /* The lighter gold passes on the dark ground; no separate text step. */
+    --accent-text: #e1ad66;
   }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
+@theme inline {
+  /* Only the design system's roles exist as color utilities. Tailwind's stock
+     palette (bg-white, text-gray-*, …) is removed so a filled card or an
+     off-system color cannot be reintroduced by accident. */
+  --color-*: initial;
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-prose: var(--prose);
+  --color-border: var(--border);
+  --color-muted: var(--muted);
+  --color-accent: var(--accent);
+  --color-accent-text: var(--accent-text);
+
+  /* Two faces, no sans, no mono. `--font-cormorant` / `--font-lora` are the
+     next/font variables set on <html> in layout.tsx (they must differ from the
+     theme keys below, or `@theme inline` would emit a self-referencing var). */
+  --font-*: initial;
+  --font-heading: var(--font-cormorant), "Cormorant Garamond", Georgia, serif;
+  --font-body: var(--font-lora), Lora, Georgia, serif;
+  --default-font-family: var(--font-body);
+  --default-mono-font-family: var(--font-body);
+
+  /* Radius: 4px everywhere. `rounded` is the only radius utility left; chips
+     use the arbitrary `rounded-[3px]`. The remaining circles (radio dots, logo
+     rings) use `rounded-full`, which Tailwind keeps as a static utility. */
+  --radius-*: initial;
+  --radius: 4px;
+
+  /* Elevation is a whisper. The one shadow in the system appears on nothing in
+     the core flow; `shadow-sm` / `shadow-md` no longer exist as utilities. */
+  --shadow-*: initial;
+  --shadow-whisper: 0 1px 2px rgba(45, 43, 43, 0.14);
+}
+
+/*
+ * Base styles live in Tailwind's `base` layer so the component layer below can
+ * override them (an unlayered rule would beat any layered one regardless of
+ * specificity — that is how a global focus outline once drew a box around the
+ * underline-only fields).
+ */
+@layer base {
+  body {
+    background: var(--background);
+    color: var(--foreground);
+    font-family: var(--font-body);
+    font-weight: 400;
+  }
+
+  /* Interaction states are themed, never browser defaults (classical/readme.md). */
+  :focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+
+  ::selection {
+    background: color-mix(in srgb, var(--accent) 30%, transparent);
+  }
+
+  input,
+  textarea,
+  select,
+  button {
+    font-family: inherit;
+    caret-color: var(--accent);
+  }
+
+  button:disabled,
+  input:disabled,
+  textarea:disabled,
+  select:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+}
+
+/*
+ * Component layer — the Classical system's atoms (README "Component specs",
+ * classical/styles.css). Built from the tokens above; utilities still win when
+ * a screen needs a one-off size, because Tailwind's utilities layer is emitted
+ * after this one.
+ *
+ * Alpha steps on the ink (`color-mix(... var(--foreground) N%, transparent)`)
+ * rather than the handoff's literal rgba() so each atom is correct on the dark
+ * ground without a second definition.
+ */
+@layer components {
+  /* — buttons — outlined, never filled. Labels set in --accent-text rather
+       than --accent: a 16px semibold label is paragraph-size to WCAG (bold is
+       ≥700), so the 3.0:1 accent would fail the axe gate. The stroke stays
+       --accent. See docs/adr/0030. */
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    font-family: var(--font-heading);
+    font-weight: 600;
+    font-size: 16px;
+    line-height: 1.2;
+    padding: 13px 30px;
+    border: 1px solid transparent;
+    border-radius: var(--radius);
+    background: transparent;
+    color: var(--foreground);
+    cursor: pointer;
+    text-decoration: none;
+    white-space: nowrap;
+    transition:
+      background-color 0.15s,
+      border-color 0.15s,
+      color 0.15s;
+  }
+  .btn-primary {
+    color: var(--accent-text);
+    border-color: var(--accent);
+  }
+  .btn-primary:hover {
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
+  }
+  .btn-primary:active {
+    background: color-mix(in srgb, var(--accent) 22%, transparent);
+  }
+  .btn-secondary {
+    font-size: 15px;
+    color: var(--foreground);
+    border-color: var(--border);
+  }
+  .btn-secondary:hover {
+    background: color-mix(in srgb, var(--foreground) 7%, transparent);
+  }
+  .btn-secondary:active {
+    background: color-mix(in srgb, var(--foreground) 14%, transparent);
+  }
+  .btn-text {
+    font-family: var(--font-body);
+    font-weight: 400;
+    font-size: 12.5px;
+    line-height: 1.2;
+    color: var(--muted);
+    padding: 10px 4px;
+    border-color: transparent;
+  }
+  .btn-text:hover {
+    color: var(--accent-text);
+  }
+  /* Size steps, after the variants so they win. */
+  .btn-compact {
+    padding: 12px 26px;
+  }
+  .btn-sm {
+    padding: 9px 20px;
+    font-size: 15px;
+  }
+  .btn-xs {
+    padding: 7px 14px;
+    font-size: 12px;
+  }
+  .btn-block {
+    width: 100%;
+  }
+  .btn:disabled,
+  .btn[aria-disabled="true"] {
+    background: transparent;
+  }
+
+  /* — fields — no box anywhere. A bottom rule only: 20% ink when filled, 14%
+       when empty, 45% on hover, the accent on focus. The accent rule is the
+       focus indicator, so the global outline is dropped here. */
+  .field {
+    display: block;
+    width: 100%;
+    background: transparent;
+    color: var(--foreground);
+    caret-color: var(--accent);
+    font: inherit;
+    border: 0;
+    border-radius: 0;
+    border-bottom: 1px solid color-mix(in srgb, var(--foreground) 20%, transparent);
+    padding: 0 0 8px;
+    transition: border-color 0.15s;
+  }
+  .field:placeholder-shown {
+    border-bottom-color: color-mix(in srgb, var(--foreground) 14%, transparent);
+  }
+  .field:hover {
+    border-bottom-color: color-mix(in srgb, var(--foreground) 45%, transparent);
+  }
+  .field:focus-visible {
+    outline: none;
+    border-bottom-color: var(--accent);
+  }
+  .field::placeholder {
+    font-family: var(--font-heading);
+    font-style: italic;
+    color: color-mix(in srgb, var(--foreground) 34%, transparent);
+    opacity: 1;
+  }
+  /* The story composer: same rule, but its placeholder sets in the prose face. */
+  .field-prose::placeholder {
+    font-family: var(--font-body);
+  }
+  textarea.field {
+    resize: none;
+  }
+  .field-label {
+    display: block;
+    font-size: 11px;
+    line-height: 1;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+
+  /* — kicker — the small uppercase section opener. */
+  .kicker {
+    font-size: 10.5px;
+    line-height: 1;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--accent-text);
+  }
+
+  /* — chips — 3px radius, hairline, text only. The visible chip is the inner
+       span (≈33px tall); the button around it carries the 44px touch target
+       without the .tap-target overlay, which is unsafe on a wrapping row. */
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--muted);
+    font-family: var(--font-body);
+    font-size: 11.5px;
+    line-height: 1;
+    cursor: pointer;
+  }
+  .chip > span {
+    display: inline-flex;
+    align-items: center;
+    padding: 9px 15px;
+    border-radius: 3px;
+    border: 1px solid color-mix(in srgb, var(--foreground) 18%, transparent);
+    transition:
+      border-color 0.15s,
+      color 0.15s;
+  }
+  .chip:hover > span {
+    border-color: var(--accent);
+  }
+  .chip[aria-pressed="true"] {
+    color: var(--accent-text);
+  }
+  .chip[aria-pressed="true"] > span {
+    border-color: var(--accent);
+  }
+  .chip:disabled:hover > span {
+    border-color: color-mix(in srgb, var(--foreground) 18%, transparent);
+  }
+
+  /* — radio — a 13px dot on a native, visually hidden input. */
+  .radio input {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    opacity: 0;
+    pointer-events: none;
+  }
+  .dot {
+    width: 13px;
+    height: 13px;
+    flex: none;
+    border-radius: 50%;
+    border: 1.4px solid color-mix(in srgb, var(--foreground) 25%, transparent);
+    background: transparent;
+    transition:
+      border-color 0.15s,
+      background-color 0.15s;
+  }
+  .radio:hover .dot {
+    border-color: var(--accent);
+  }
+  .radio input:checked + .dot {
+    border-color: var(--accent);
+    background: var(--accent);
+    box-shadow: inset 0 0 0 3.5px var(--background);
+  }
+  .radio input:focus-visible + .dot {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+
+  /* — author label — the margin attribution. Writer turns in the muted ink,
+       AI turns in the accent text step. */
+  .author-label {
+    font-size: 10.5px;
+    line-height: 1.5;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .author-label-ai {
+    color: var(--accent-text);
+  }
 }
 
 /*

@@ -1,7 +1,7 @@
 import { test, expect } from "@playwright/test";
 import { resetDatabase } from "../helpers/db";
 import { resetMockScript, setMockScript, streamResponse } from "../helpers/mock";
-import { paragraphArticles, startStory, waitForAiParagraph, writeParagraph } from "../helpers/story";
+import { beginStory, paragraphArticles, startStory, waitForAiParagraph, writeParagraph } from "../helpers/story";
 
 // PRD §5 happy path, no account.
 
@@ -32,7 +32,9 @@ test.describe("guest write journey", () => {
     // alternative for text that the app itself hides from the a11y tree.
     const preview = page.locator('article[aria-hidden="true"]');
     await expect(preview).toContainText("The lighthouse had not blinked");
-    await expect(preview).toContainText("Claude (Anthropic)");
+    // The streaming label names the model (README "Story canvas": "Claude", "GPT-4o");
+    // the vendor stays in the settled paragraph's aria-label, asserted below.
+    await expect(preview).toContainText("Claude");
     await expect(paragraphArticles(page)).toHaveCount(0); // second chunk hasn't landed yet
 
     await waitForAiParagraph(page, 1);
@@ -73,8 +75,7 @@ test.describe("guest write journey", () => {
     // actually fired, so this proves the reset by generating fresh and checking
     // the count starts back at 1 rather than accumulating on the old paragraph.
     await setMockScript(streamResponse(["A brand new story begins."]));
-    await page.getByRole("button", { name: /Let's write/ }).click();
-    await page.waitForURL("**/story");
+    await beginStory(page);
     await waitForAiParagraph(page, 1);
     await expect(paragraphArticles(page).nth(0)).toContainText("A brand new story begins.");
   });

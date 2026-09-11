@@ -2,7 +2,7 @@ import { test, expect } from "@playwright/test";
 import { resetDatabase } from "../helpers/db";
 import { resetMockScript, setMockScript, streamResponse } from "../helpers/mock";
 import { registerAccount, signIn, uniqueEmail } from "../helpers/auth";
-import { paragraphArticles, startStory, waitForAiParagraph } from "../helpers/story";
+import { beginStory, goToStartStep, paragraphArticles, startStory, waitForAiParagraph } from "../helpers/story";
 
 // PRD §8 criterion 3. The subtlest one: a guest's pre-login paragraphs must
 // persist once they sign in mid-story, with no separate "import" step.
@@ -44,9 +44,9 @@ test("a guest's paragraphs persist once signed in mid-story, without a separate 
   // ensureStoryId() and, via /api/generate's diff-based sync, adopts the whole
   // pre-login backlog in one shot (docs/adr/0009) — not a dedicated import step.
   await setMockScript(streamResponse(["The dark answered a second time."]));
+  await goToStartStep(page, "Opening");
   await page.getByLabel("Opening lines").fill("A third voice, now signed in, joined them.");
-  await page.getByRole("button", { name: /Let's write/ }).click();
-  await page.waitForURL("**/story");
+  await beginStory(page);
   await waitForAiParagraph(page, 4);
 
   await expect(paragraphArticles(page).nth(0)).toContainText("Two Writers began this");

@@ -21,11 +21,12 @@
     "test:e2e:soak": "playwright test --config e2e/playwright.config.ts --repeat-each=10",
     "test:scripts": "vitest run --config vitest.scripts.config.mts",
     "bundle-budget": "tsx scripts/bundle-budget.mts",
+    "bench": "node --env-file-if-exists=.env.local ./node_modules/.bin/tsx bench/harness.ts",
     "db:generate": "node --env-file=.env.local ./node_modules/.bin/drizzle-kit generate",
     "db:migrate": "node --env-file=.env.local ./node_modules/.bin/drizzle-kit migrate"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.115.0",
+    "@anthropic-ai/sdk": "^0.124.0",
     "@auth/drizzle-adapter": "^1.11.3",
     "@neondatabase/serverless": "^1.1.0",
     "@opentelemetry/api": "^1.9.1",
@@ -37,7 +38,7 @@
     "drizzle-orm": "^0.45.2",
     "next": "16.3.4",
     "next-auth": "^5.0.0-beta.32",
-    "openai": "^7.4.0",
+    "openai": "^7.10.0",
     "react": "19.2.8",
     "react-dom": "19.2.8"
   },
@@ -45,11 +46,11 @@
     "@axe-core/playwright": "^4.13.0",
     "@opentelemetry/sdk-trace-base": "^2.11.0",
     "@opentelemetry/sdk-trace-node": "^2.11.0",
-    "@playwright/test": "^1.62.1",
+    "@playwright/test": "^1.63.0",
     "@tailwindcss/postcss": "^4",
-    "@types/bcryptjs": "^2.4.6",
+    "@types/bcryptjs": "^3.0.0",
     "@types/node": "^20",
-    "@types/pg": "^8.21.0",
+    "@types/pg": "^8.23.1",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "@vitest/coverage-v8": "^4.1.10",
@@ -60,7 +61,7 @@
     "pg": "^8.23.0",
     "playwright": "^1.62.1",
     "tailwindcss": "^4",
-    "tsx": "4.23.12",
+    "tsx": "4.23.13",
     "typescript": "^5",
     "vitest": "^4.1.10"
   }
