@@ -6,8 +6,8 @@ import { stories, storyParagraphs, users } from "@/lib/db/schema";
 import { getProviderList } from "@/lib/providers/list";
 import { AppHeader } from "@/components/AppHeader";
 import { ReportButton } from "@/components/ReportButton";
-import { splitDisplayName } from "@/components/providerName";
-import { numberWord } from "@/components/numberWord";
+import { splitDisplayName } from "@/lib/ui/providerName";
+import { numberWord } from "@/lib/ui/numberWord";
 
 // A finished story reads as one printed piece (board 1e): 16.5px / 1.9 Lora,
 // justified, 22px apart, no author labels. Attribution moves to the footer.

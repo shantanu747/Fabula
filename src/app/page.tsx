@@ -4,8 +4,8 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useStory, MIN_TARGET_LENGTH, MAX_TARGET_LENGTH } from "@/lib/story/StoryContext";
 import { AppHeader } from "@/components/AppHeader";
-import { splitDisplayName } from "@/components/providerName";
-import { numberWord } from "@/components/numberWord";
+import { splitDisplayName } from "@/lib/ui/providerName";
+import { numberWord } from "@/lib/ui/numberWord";
 
 const PRESET_THEMES = ["Fantasy", "Mystery", "Sci-fi", "Fairytale", "Slice of life"];
 

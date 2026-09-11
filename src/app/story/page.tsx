@@ -7,7 +7,8 @@ import { useSession } from "next-auth/react";
 import { useStory } from "@/lib/story/StoryContext";
 import { isWritersTurn } from "@/lib/story/turn";
 import { AppHeader, AuthLinks, NAV_LINK } from "@/components/AppHeader";
-import { splitDisplayName } from "@/components/providerName";
+import { splitDisplayName } from "@/lib/ui/providerName";
+import { stageIndex } from "@/lib/ui/stageIndex";
 
 // Story prose: 17px / 1.85 Lora, justified and hyphenated from the tablet
 // breakpoint up; 16px / 1.8 and ragged-right on a phone (boards 1c, 1g).
@@ -22,14 +23,6 @@ const LABEL = "author-label text-[10px] md:text-[10.5px]";
 
 const STAGES = ["Setup", "Turn", "Climax", "Close"] as const;
 const RAIL_HEIGHT = 210;
-
-/** README "Arc rail": 0–25 / 25–55 / 55–85 / 85–100% of the target length. */
-function stageIndex(ratio: number): number {
-  if (ratio < 0.25) return 0;
-  if (ratio < 0.55) return 1;
-  if (ratio < 0.85) return 2;
-  return 3;
-}
 
 function AuthorLabel({ ai, children }: { ai: boolean; children: React.ReactNode }) {
   return (
