@@ -129,5 +129,5 @@ for (const { providerId, caseId } of PR_MATRIX) {
 
 it("aggregate: pooled means and pass-rate meet thresholds.json", () => {
   const failures = evaluateEntries(entries, thresholds);
-  expect(failures, "threshold failures:\n" + failures.join("\n")).toEqual([]);
+  expect(failures, "threshold failures:\n" + failures.map((f) => f.message).join("\n")).toEqual([]);
 });
