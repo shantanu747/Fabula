@@ -342,9 +342,17 @@ function StoryPage() {
                 // While the AI writes, the composer reads as closed: the placeholder
                 // fades, not the control — a dimmed textarea fails the contrast gate
                 // even when empty (docs/adr/0031).
-                className={`${PROSE} field-sizing-content block w-full resize-none overflow-hidden border-0 bg-transparent p-0 pl-[7px] placeholder:italic focus-visible:outline-none ${
+                className={`${PROSE} peer field-sizing-content block w-full resize-none overflow-hidden border-0 bg-transparent p-0 pl-[7px] placeholder:italic focus-visible:outline-none ${
                   isStreaming ? "placeholder:text-foreground/20" : "placeholder:text-foreground/34"
                 }`}
+              />
+              {/* The composer's focus indicator: a 2px accent rule down the textarea's
+                  left edge, the same device GutterRule uses for an AI paragraph — shown
+                  on keyboard focus regardless of content, since the borderless field has
+                  no other visible focus state (docs/adr/0031, WCAG 2.4.7). */}
+              <span
+                aria-hidden="true"
+                className="pointer-events-none absolute inset-y-0 left-0 hidden w-[2px] bg-accent peer-focus-visible:block"
               />
             </div>
           </div>
