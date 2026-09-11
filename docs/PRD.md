@@ -41,7 +41,7 @@ Writers (casual and hobbyist) want a low-friction way to co-write short fiction 
 1. User lands on Fabula.
 2. User optionally selects a genre/theme, adds starter characters, and/or writes opening lines.
 3. User optionally picks an LLM provider/model (default provided if skipped).
-4. User optionally sets a target story length — the fifth and last of five start-flow screens (scene, people, opening, voice, length) — then clicks "Begin the story."
+4. User optionally sets a target story length, then clicks "Let's write."
    - If opening lines were given, they become the Writer's first paragraph as-is, and the AI's reply streams immediately after.
    - If no opening lines were given, the AI writes the first paragraph itself — inventing a theme/characters and stating its choices first if none were given either.
 5. Story canvas shows the growing story. User and AI strictly alternate, one paragraph per turn — after the AI writes, the next paragraph must come from the Writer, and vice versa. Each Writer turn is followed automatically by the AI's reply (one "Continue the Story" click covers both). As the story approaches its target length, the AI increasingly steers its own turns toward a climax and resolution — the target is a soft guide, never a hard stop.

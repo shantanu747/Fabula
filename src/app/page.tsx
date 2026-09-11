@@ -1,12 +1,11 @@
 "use client";
 
-import { Suspense, useEffect, useRef, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { useStory, MIN_TARGET_LENGTH, MAX_TARGET_LENGTH } from "@/lib/story/StoryContext";
-import { MAX_HINT_LENGTH } from "@/lib/story/constants";
 import { AppHeader } from "@/components/AppHeader";
-import { splitDisplayName } from "@/lib/ui/providerName";
-import { numberWord } from "@/lib/ui/numberWord";
+import { splitDisplayName } from "@/components/providerName";
+import { numberWord } from "@/components/numberWord";
 
 const PRESET_THEMES = ["Fantasy", "Mystery", "Sci-fi", "Fairytale", "Slice of life"];
 
@@ -42,9 +41,8 @@ const TICK_VALUES = Array.from({ length: 13 }, (_, i) => MIN_TARGET_LENGTH + i *
 const TITLE = "mt-4 font-heading text-[38px] font-normal leading-[1.08] text-foreground md:text-[46px]";
 const LEAD = "mt-3 text-[14px] italic leading-[1.7] text-muted";
 
-function HomeContent() {
+export default function Home() {
   const router = useRouter();
-  const searchParams = useSearchParams();
   const {
     theme,
     characters,
@@ -66,20 +64,6 @@ function HomeContent() {
   const [step, setStep] = useState(0);
   const panelRefs = useRef<(HTMLElement | null)[]>([]);
   const mounted = useRef(false);
-
-  // "Start one like this" (docs/adr/0038): a shared story's theme/characters
-  // arrive as ?theme=/&characters= and seed the Scene/People fields once, on
-  // mount — never overwriting a field already filled, whether from a Writer
-  // who started typing before this ran or a remount that still has state.
-  // Clamped to MAX_HINT_LENGTH since these now come from a URL a Writer can
-  // hand-edit, not just from the fields that already enforce that bound.
-  useEffect(() => {
-    const prefillTheme = searchParams.get("theme");
-    if (prefillTheme && !theme) setTheme(prefillTheme.slice(0, MAX_HINT_LENGTH));
-    const prefillCharacters = searchParams.get("characters");
-    if (prefillCharacters && !characters) setCharacters(prefillCharacters.slice(0, MAX_HINT_LENGTH));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   // Move focus with the slide so keyboard and screen-reader users land on the
   // screen they asked for, not on a control that just went off-stage.
@@ -373,13 +357,5 @@ function HomeContent() {
         )}
       </footer>
     </div>
-  );
-}
-
-export default function Home() {
-  return (
-    <Suspense>
-      <HomeContent />
-    </Suspense>
   );
 }

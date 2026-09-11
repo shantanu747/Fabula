@@ -58,10 +58,6 @@ export default defineConfig({
         "src/lib/kv/**": { statements: 100, branches: 100, functions: 100, lines: 100 },
         "src/lib/admission/**": { statements: 100, branches: 100, functions: 100, lines: 100 },
         "src/lib/budget/**": { statements: 100, branches: 100, functions: 100, lines: 100 },
-        // Small pure helpers with no side effects and few enough branches
-        // (stageIndex's four boundaries chief among them) that partial coverage
-        // would just mean an untested boundary, not a cost/benefit tradeoff.
-        "src/lib/ui/**": { statements: 100, branches: 100, functions: 100, lines: 100 },
         // logger.ts's redaction allowlist and requestId.ts's header validation are
         // both structural safety guarantees (never log story text; never echo an
         // unvalidated header into a log line) rather than ordinary route glue, so

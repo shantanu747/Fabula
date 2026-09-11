@@ -23,10 +23,7 @@ export function AuthLinks({ guestLinks = true }: { guestLinks?: boolean }) {
         <Link href="/feed" className={NAV_LINK}>
           Feed
         </Link>
-        {/* data-testid, not a role/text query: the name/email varies per test
-            run (e2e/helpers/auth.ts's uniqueEmail()), so visual.spec.ts needs
-            a stable hook to mask it rather than something to match against. */}
-        <span data-testid="session-user" className="hidden text-[12px] italic text-muted lg:inline">
+        <span className="hidden text-[12px] italic text-muted lg:inline">
           {session.user?.name ?? session.user?.email}
         </span>
         <button type="button" onClick={() => signOut({ callbackUrl: "/" })} className={NAV_LINK}>

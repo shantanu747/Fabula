@@ -7,7 +7,7 @@ Accepted.
 ## Context
 
 Phase 4 of the visual redesign replaces the single scrolling start page with five screens on a
-sliding track (`docs/design/handoff.md` "Start flow", board 2a): scene, people, opening, voice, length.
+sliding track (handoff README "Start flow", board 2a): scene, people, opening, voice, length.
 Everything remains optional; the story state in `StoryContext` is untouched; the only new state
 is which screen is up. The mechanics below are where the implementation had to choose.
 

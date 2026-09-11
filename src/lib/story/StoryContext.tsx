@@ -18,7 +18,6 @@ type Action =
   | { type: "SET_OPENING_LINES"; value: string }
   | { type: "SET_PROVIDER"; id: string }
   | { type: "SET_TARGET_LENGTH"; value: number }
-  | { type: "SET_SHARED"; value: boolean }
   | { type: "GENERATION_START" }
   | { type: "GENERATION_CHUNK"; text: string }
   | { type: "GENERATION_DONE"; paragraph: StoryParagraph; invented?: InventedMetadata }
@@ -45,14 +44,10 @@ function initialState(defaultProviderId: string): StoryState {
     paragraphs: [],
     invented: undefined,
     generation: { kind: "idle" },
-    isShared: false,
   };
 }
 
-// Exported for StoryContext.test.ts — a pure reducer is the one part of this
-// file testable without a jsdom/React-testing-library dependency (see the
-// coverage exclusion below and docs/adr/0039).
-export function storyReducer(state: StoryState, action: Action): StoryState {
+function storyReducer(state: StoryState, action: Action): StoryState {
   switch (action.type) {
     case "SET_THEME":
       return { ...state, theme: action.value };
@@ -64,8 +59,6 @@ export function storyReducer(state: StoryState, action: Action): StoryState {
       return { ...state, selectedProviderId: action.id };
     case "SET_TARGET_LENGTH":
       return { ...state, targetLength: action.value };
-    case "SET_SHARED":
-      return { ...state, isShared: action.value };
     case "GENERATION_START":
       return { ...state, generation: { kind: "streaming", text: "" } };
     case "GENERATION_CHUNK":
@@ -110,10 +103,6 @@ interface StoryContextValue extends StoryState {
   setOpeningLines: (value: string) => void;
   setSelectedProviderId: (id: string) => void;
   setTargetLength: (value: number) => void;
-  /** Optimistically flips `isShared` and PATCHes it to the server; reverts on
-   *  failure. A no-op until `storyId` exists — nothing to share server-side
-   *  before the story is first persisted. */
-  setShared: (value: boolean) => void;
   submitWriterParagraph: (text: string) => void;
   generateNext: () => void;
   /** Submits `text` as the Writer's paragraph, then immediately generates the
@@ -250,21 +239,6 @@ export function StoryProvider({
     setOpeningLines: (value) => dispatch({ type: "SET_OPENING_LINES", value }),
     setSelectedProviderId: (id) => dispatch({ type: "SET_PROVIDER", id }),
     setTargetLength: (value) => dispatch({ type: "SET_TARGET_LENGTH", value }),
-    setShared: (value) => {
-      if (!state.storyId) return;
-      const storyId = state.storyId;
-      const previous = state.isShared;
-      dispatch({ type: "SET_SHARED", value });
-      void fetch(`/api/stories/${storyId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ isShared: value }),
-      })
-        .then((response) => {
-          if (!response.ok) dispatch({ type: "SET_SHARED", value: previous });
-        })
-        .catch(() => dispatch({ type: "SET_SHARED", value: previous }));
-    },
     submitWriterParagraph: (text) => dispatch({ type: "WRITER_SUBMIT", text: text.trim() }),
     generateNext: () => {
       void ensureStoryId().then((storyId) => runGeneration(0, undefined, storyId));

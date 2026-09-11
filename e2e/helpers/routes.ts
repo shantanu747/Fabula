@@ -2,7 +2,7 @@ import type { Browser, BrowserContext, Page } from "@playwright/test";
 import { expect } from "@playwright/test";
 import { signUp, uniqueEmail } from "./auth";
 import { errorResponse, resetMockScript, setMockScript, streamResponse } from "./mock";
-import { errorAlert, goToStartStep, startStory, waitForAiParagraph } from "./story";
+import { errorAlert, startStory, waitForAiParagraph } from "./story";
 
 export interface RouteCheckpoint {
   /** Stable, filename/title-safe identifier for this state. */
@@ -19,11 +19,10 @@ const MID_STREAM_DELAY_MS = 15_000;
 
 /**
  * Seeds and navigates to every page state Plan 6's gates need to look at —
- * responsive overflow/tap-targets, axe violations — and Plan 8's visual
- * regression job, and returns one already-settled Page per state. Shared by
- * responsive.spec.ts, accessibility.spec.ts and visual.spec.ts so all three
- * scan the exact same set of states rather than drifting apart from each
- * other over time.
+ * responsive overflow/tap-targets, axe violations — and returns one
+ * already-settled Page per state. Shared by responsive.spec.ts and
+ * accessibility.spec.ts so the two specs scan the exact same set of states
+ * rather than drifting apart from each other over time.
  *
  * Each checkpoint gets its own BrowserContext: cheap here (everything is
  * local — the app under test and the mock provider), and it means one
@@ -51,30 +50,6 @@ export async function seedRouteCheckpoints(browser: Browser): Promise<{
   const home = await newPage();
   await home.goto("/");
   rest.push({ name: "home", page: home });
-
-  // The start flow's other four screens (home above is "Scene", the first).
-  // Each gets its own fresh page rather than reusing home's, since walking
-  // the rail is a client-side slide, not a navigation — a shared page would
-  // leave every later checkpoint on whatever screen the previous one left it.
-  const startPeople = await newPage();
-  await startPeople.goto("/");
-  await goToStartStep(startPeople, "People");
-  rest.push({ name: "start-people", page: startPeople });
-
-  const startOpening = await newPage();
-  await startOpening.goto("/");
-  await goToStartStep(startOpening, "Opening");
-  rest.push({ name: "start-opening", page: startOpening });
-
-  const startVoice = await newPage();
-  await startVoice.goto("/");
-  await goToStartStep(startVoice, "Voice");
-  rest.push({ name: "start-voice", page: startVoice });
-
-  const startLength = await newPage();
-  await startLength.goto("/");
-  await goToStartStep(startLength, "Length");
-  rest.push({ name: "start-length", page: startLength });
 
   const login = await newPage();
   await login.goto("/login");

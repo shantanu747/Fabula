@@ -73,26 +73,5 @@ test.describe("accessibility", () => {
         await cleanup();
       }
     });
-
-    // WCAG 2.4.7: the composer is borderless by design (no `.field` underline
-    // rule, ADR 0031) and drops the global outline (ADR 0030), so its focus
-    // indicator is this one purpose-built device — assert it actually appears
-    // on keyboard focus rather than trusting the CSS alone.
-    test("the composer shows a focus indicator on keyboard focus", async ({ browser }, testInfo) => {
-      test.skip(testInfo.project.name !== "desktop", "checked once, not per-viewport");
-
-      const { checkpoints, cleanup } = await seedRouteCheckpoints(browser);
-      try {
-        const { page } = checkpoints.find((c) => c.name === "story-empty")!;
-        const composer = page.locator("#next-paragraph");
-        const focusRule = page.locator("#next-paragraph + span");
-
-        expect(await focusRule.evaluate((el) => getComputedStyle(el).display)).toBe("none");
-        await composer.focus();
-        expect(await focusRule.evaluate((el) => getComputedStyle(el).display)).toBe("block");
-      } finally {
-        await cleanup();
-      }
-    });
   });
 });

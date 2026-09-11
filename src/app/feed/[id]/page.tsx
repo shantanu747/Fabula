@@ -6,8 +6,8 @@ import { stories, storyParagraphs, users } from "@/lib/db/schema";
 import { getProviderList } from "@/lib/providers/list";
 import { AppHeader } from "@/components/AppHeader";
 import { ReportButton } from "@/components/ReportButton";
-import { splitDisplayName } from "@/lib/ui/providerName";
-import { numberWord } from "@/lib/ui/numberWord";
+import { splitDisplayName } from "@/components/providerName";
+import { numberWord } from "@/components/numberWord";
 
 // A finished story reads as one printed piece (board 1e): 16.5px / 1.9 Lora,
 // justified, 22px apart, no author labels. Attribution moves to the footer.
@@ -49,21 +49,11 @@ export default async function SharedStory({ params }: PageProps<"/feed/[id]">) {
   const title = row.theme?.trim() || row.characters?.trim() || "A shared story";
   const authorName = row.authorName ?? "a Writer";
   const provider = getProviderList().find((p) => p.id === row.selectedProviderId);
-
-  // docs/adr/0038: carries this story's theme/characters into the start flow.
-  // Home clamps to MAX_HINT_LENGTH itself — no truncation needed here.
-  const startFromParams = new URLSearchParams();
-  if (row.theme?.trim()) startFromParams.set("theme", row.theme.trim());
-  if (row.characters?.trim()) startFromParams.set("characters", row.characters.trim());
-  const startFromHref = startFromParams.size > 0 ? `/?${startFromParams.toString()}` : "/";
   const modelName = provider ? splitDisplayName(provider.displayName).name : "an AI";
   const count = paragraphs.length;
 
   return (
-    // print-shared-story scopes globals.css's print stylesheet — a shared story
-    // reads as a printed piece (board 1e); the nav header, footer actions and
-    // Report button are chrome, not part of it.
-    <div className="print-shared-story flex flex-1 flex-col bg-background">
+    <div className="flex flex-1 flex-col bg-background">
       <AppHeader />
 
       <main className="mx-auto w-full max-w-[820px] px-[22px] pb-14 pt-10 md:px-[92px] md:pt-[54px]">
@@ -96,7 +86,7 @@ export default async function SharedStory({ params }: PageProps<"/feed/[id]">) {
             Paragraphs alternate between {authorName} and {modelName}.
           </p>
           <div className="ml-auto flex items-center gap-5">
-            <Link href={startFromHref} className="btn btn-primary btn-compact">
+            <Link href="/" className="btn btn-primary btn-compact">
               Start one like this
             </Link>
             <ReportButton storyId={row.id} />

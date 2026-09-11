@@ -4,11 +4,13 @@
  * 1a). Inline SVG on purpose — no image asset, and the strokes take the theme
  * tokens so the dark palette recolors it for free.
  *
- * stroke-width compensates for scale so the hairline holds its weight at the
- * 29px nav size — the only size currently used anywhere in the product.
+ * stroke-width compensates for scale so the hairline holds its weight: 2.2 at
+ * the 29px nav size, 2.4 at 27px, 1.2 at the 66px display size.
  */
 const SIZES = {
   nav: { width: 29, height: 19, strokeWidth: 2.2 },
+  compact: { width: 27, height: 17, strokeWidth: 2.4 },
+  display: { width: 66, height: 42, strokeWidth: 1.2 },
 } as const;
 
 export type MarkSize = keyof typeof SIZES;

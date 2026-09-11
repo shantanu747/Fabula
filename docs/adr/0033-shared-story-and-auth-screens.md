@@ -7,7 +7,7 @@ Accepted.
 ## Context
 
 Phase 5 of the visual redesign sets the read-only shared story (`/feed/[id]`) as a finished
-printed piece with a centered masthead, a drop cap and footer attribution (`docs/design/handoff.md`
+printed piece with a centered masthead, a drop cap and footer attribution (handoff README
 "Shared story", board 1e), and finishes the sign-in / sign-up screens (board 1f). Three
 questions the handoff left open are settled here.
 
@@ -31,7 +31,7 @@ serving as the title it would repeat the line above.
 and characters from the shared one would mean the start page reading query parameters and
 writing them into `StoryContext` on mount — a new state path the handoff does not describe. The
 button links to `/`; the copy invites, the flow stays the same. Prefill is a small follow-up if a
-use case for it appears. **Superseded by ADR 0038**, which builds that follow-up.
+use case for it appears.
 
 **Drop cap via `::first-letter`, count as a word.** The first paragraph's cap is the CSS
 pseudo-element (Tailwind's `first-letter:` variant), not a split string, so the text node stays

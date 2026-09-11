@@ -8,7 +8,7 @@ Accepted.
 
 Phase 3 of the visual redesign turns the story canvas (`src/app/story/page.tsx`) from a stack of
 chat cards into one continuous justified column with authorship in a left gutter and a
-vertical "arc" rail on the right (`docs/design/handoff.md` "Story canvas", boards 1c / 1d / 1g). Most of
+vertical "arc" rail on the right (handoff README "Story canvas", boards 1c / 1d / 1g). Most of
 it is a straight transcription. Five points were not.
 
 ## Decision
@@ -27,13 +27,7 @@ next to `New story`. Persistence for a signed-in Writer is already automatic (AD
 sharing already has a toggle in the library. So: a guest's `Save` goes to sign-in with a
 callback to `/story` (the guest-adoption path then keeps the paragraphs); a signed-in Writer sees
 a static "Saved" once a `storyId` exists; `Share` goes to the library (or to sign-in with the
-library as callback). No `isShared` is added to `StoryContext`. **Share is superseded by ADR
-0039**, which adds `isShared` and makes Share a toggle in the canvas header itself; Save is
-unaffected and stands as decided here.
-
-**The target-length slider leaves the canvas, full stop — reaffirmed by ADR 0037.** A follow-up
-pass considered restoring a hidden-range-input control on the arc rail and declined; see that
-ADR for the reasoning.
+library as callback). No `isShared` is added to `StoryContext`.
 
 **Rail, gutter rule and progress bar are drawn with SVG attributes and utility classes, never
 inline styles.** The production CSP has no `'unsafe-inline'` for `style-src-attr` (ADR 0024), so
