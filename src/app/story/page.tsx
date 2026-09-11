@@ -7,7 +7,8 @@ import { useSession } from "next-auth/react";
 import { useStory } from "@/lib/story/StoryContext";
 import { isWritersTurn } from "@/lib/story/turn";
 import { AppHeader, AuthLinks, NAV_LINK } from "@/components/AppHeader";
-import { splitDisplayName } from "@/components/providerName";
+import { splitDisplayName } from "@/lib/ui/providerName";
+import { stageIndex } from "@/lib/ui/stageIndex";
 
 // Story prose: 17px / 1.85 Lora, justified and hyphenated from the tablet
 // breakpoint up; 16px / 1.8 and ragged-right on a phone (boards 1c, 1g).
@@ -22,14 +23,6 @@ const LABEL = "author-label text-[10px] md:text-[10.5px]";
 
 const STAGES = ["Setup", "Turn", "Climax", "Close"] as const;
 const RAIL_HEIGHT = 210;
-
-/** README "Arc rail": 0–25 / 25–55 / 55–85 / 85–100% of the target length. */
-function stageIndex(ratio: number): number {
-  if (ratio < 0.25) return 0;
-  if (ratio < 0.55) return 1;
-  if (ratio < 0.85) return 2;
-  return 3;
-}
 
 function AuthorLabel({ ai, children }: { ai: boolean; children: React.ReactNode }) {
   return (
@@ -92,7 +85,9 @@ function StoryPage() {
     selectedProviderId,
     generation,
     storyId,
+    isShared,
     setSelectedProviderId,
+    setShared,
     submitAndContinue,
     generateNext,
     switchProviderAndRetry,
@@ -125,6 +120,7 @@ function StoryPage() {
           invented: data.invented,
           generation: { kind: "idle" },
           storyId: data.id,
+          isShared: data.isShared,
         });
       });
     return () => {
@@ -175,22 +171,33 @@ function StoryPage() {
     }
   }
 
-  // Save and Share are the header's promises to a Writer, not new state. For a
-  // guest, Save is sign-in — persistence is automatic once signed in (docs/adr/0009),
-  // and the guest's paragraphs survive the client-side navigation. Share lives
-  // in the library, where the toggle is, so it appears once there is a library.
+  // Save is the header's promise to a Writer, not new state. For a guest,
+  // Save is sign-in — persistence is automatic once signed in (docs/adr/0009),
+  // and the guest's paragraphs survive the client-side navigation.
   const saveAction = isAuthenticated ? (
-    storyId ? <span className="text-[12px] italic text-muted">Saved</span> : null
+    // Hidden below `lg`: the canvas header holds mark, divider, theme, count,
+    // Saved, Share, New story, My library, Feed, Sign out, and the theme
+    // already truncates at tablet widths — "Saved" is the lowest-value item
+    // to drop first (no board covers this width).
+    storyId ? <span className="hidden text-[12px] italic text-muted lg:inline">Saved</span> : null
   ) : (
     <Link href="/login" className={NAV_LINK}>
       Sign in to save
     </Link>
   );
-  const shareAction = isAuthenticated ? (
-    <Link href="/library" className={NAV_LINK}>
-      Share
-    </Link>
-  ) : null;
+  // Share toggles isShared directly from the canvas (docs/adr/0039) — same
+  // control, copy, and optimistic-then-PATCH behavior as /library's
+  // ShareToggle. Only meaningful once the story is persisted.
+  const shareAction =
+    isAuthenticated && storyId ? (
+      <button
+        type="button"
+        onClick={() => setShared(!isShared)}
+        className={isShared ? "btn btn-primary btn-xs tap-target" : "btn btn-secondary btn-xs tap-target"}
+      >
+        {isShared ? "Shared to feed" : "Share to feed"}
+      </button>
+    ) : null;
   const newStoryAction = (
     <Link href="/" onClick={resetStory} className="btn btn-primary btn-xs tap-target">
       New story
@@ -349,9 +356,17 @@ function StoryPage() {
                 // While the AI writes, the composer reads as closed: the placeholder
                 // fades, not the control — a dimmed textarea fails the contrast gate
                 // even when empty (docs/adr/0031).
-                className={`${PROSE} field-sizing-content block w-full resize-none overflow-hidden border-0 bg-transparent p-0 pl-[7px] placeholder:italic focus-visible:outline-none ${
+                className={`${PROSE} peer field-sizing-content block w-full resize-none overflow-hidden border-0 bg-transparent p-0 pl-[7px] placeholder:italic focus-visible:outline-none ${
                   isStreaming ? "placeholder:text-foreground/20" : "placeholder:text-foreground/34"
                 }`}
+              />
+              {/* The composer's focus indicator: a 2px accent rule down the textarea's
+                  left edge, the same device GutterRule uses for an AI paragraph — shown
+                  on keyboard focus regardless of content, since the borderless field has
+                  no other visible focus state (docs/adr/0031, WCAG 2.4.7). */}
+              <span
+                aria-hidden="true"
+                className="pointer-events-none absolute inset-y-0 left-0 hidden w-[2px] bg-accent peer-focus-visible:block"
               />
             </div>
           </div>

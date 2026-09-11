@@ -35,6 +35,10 @@ export interface StoryState {
   /** Set once this story has been saved server-side (logged-in Writers only —
    *  see docs/adr/0009). Undefined means guest mode or "not saved yet". */
   storyId?: string;
+  /** Mirrors `stories.isShared`. Meaningless until `storyId` is set — a guest
+   *  or not-yet-persisted story is never shared, so this defaults to `false`
+   *  rather than `undefined` (see docs/adr/0039). */
+  isShared: boolean;
 }
 
 export type { InventedMetadata, StoryParagraph, ProviderSummary };

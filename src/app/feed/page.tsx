@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { AppHeader } from "@/components/AppHeader";
 
@@ -19,11 +19,17 @@ export default function Feed() {
   // Starts true so the initial-mount fetch doesn't need to set it synchronously
   // from inside the effect (react-hooks/set-state-in-effect flags that).
   const [isLoading, setIsLoading] = useState(true);
+  // Guards against React strict mode's double-invoked mount effect (and a "Load
+  // more" double click) re-appending the same page — a response for an offset
+  // already merged is dropped rather than de-duplicated after the fact.
+  const mergedOffsets = useRef(new Set<number>());
 
   function fetchPage(offset: number) {
     fetch(`/api/feed?offset=${offset}`)
       .then((res) => res.json())
       .then((data: { stories: FeedStory[]; nextOffset: number | null }) => {
+        if (mergedOffsets.current.has(offset)) return;
+        mergedOffsets.current.add(offset);
         setStories((prev) => [...prev, ...data.stories]);
         setNextOffset(data.nextOffset);
       })
