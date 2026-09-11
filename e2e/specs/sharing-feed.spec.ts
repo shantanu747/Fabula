@@ -38,10 +38,11 @@ test("toggling sharing makes a story visible in another account's feed, and unsh
 
   await feedItem.click();
   await expect(pageB).toHaveURL(/\/feed\//);
-  await expect(pageB.getByText("Shared by Writer A")).toBeVisible();
+  // The masthead byline (board 1e): "Written by <name> with <model> · n paragraphs".
+  await expect(pageB.getByText(/Written by Writer A with/)).toBeVisible();
   // Read-only: no compose textarea, no continue control.
   await expect(pageB.getByLabel("Write the next paragraph")).toHaveCount(0);
-  await expect(pageB.getByRole("button", { name: "Continue the Story" })).toHaveCount(0);
+  await expect(pageB.getByRole("button", { name: "Add & continue" })).toHaveCount(0);
 
   // A unshares.
   await page.getByRole("button", { name: "Shared to feed" }).click();

@@ -56,6 +56,11 @@ test.describe("responsive layout", () => {
           const probe = 20;
           return [...document.querySelectorAll(selector)]
             .map((el) => {
+              // An inert subtree is not interactive by definition — the start
+              // flow keeps its off-stage steps inert and slid out of view
+              // (docs/adr/0032), so probing their controls would only measure
+              // where the slide left them.
+              if (el.closest("[inert]")) return null;
               const rect = el.getBoundingClientRect();
               if (rect.height === 0 || rect.width === 0) return null;
               const x = rect.left + rect.width / 2;
