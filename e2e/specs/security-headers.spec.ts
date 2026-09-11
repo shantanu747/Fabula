@@ -121,7 +121,13 @@ test.describe("zero CSP violations, signed in", () => {
     await page.getByRole("link", { name: "My library" }).click();
     await expectNoCspViolations(page, "/library");
 
-    await page.getByRole("button", { name: "Share to feed" }).click();
+    // ShareToggle updates its own label optimistically, before the PATCH
+    // resolves (src/components/ShareToggle.tsx) — wait on the response
+    // itself so the subsequent /feed visit reliably sees the committed share.
+    await Promise.all([
+      page.waitForResponse((r) => r.url().includes("/api/stories/") && r.request().method() === "PATCH"),
+      page.getByRole("button", { name: "Share to feed" }).click(),
+    ]);
     await expect(page.getByRole("button", { name: "Shared to feed" })).toBeVisible();
 
     await page.getByRole("link", { name: "Feed" }).click();

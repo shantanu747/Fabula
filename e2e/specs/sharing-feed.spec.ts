@@ -22,7 +22,14 @@ test("toggling sharing makes a story visible in another account's feed, and unsh
   await waitForAiParagraph(page, 1);
 
   await page.getByRole("link", { name: "My library" }).click();
-  await page.getByRole("button", { name: "Share to feed" }).click();
+  // ShareToggle updates its own button label optimistically, before the PATCH
+  // resolves (src/components/ShareToggle.tsx) — waiting on the response
+  // itself, not just the label, is what actually proves the share committed
+  // before a *different* browser context goes looking for it below.
+  await Promise.all([
+    page.waitForResponse((r) => r.url().includes("/api/stories/") && r.request().method() === "PATCH"),
+    page.getByRole("button", { name: "Share to feed" }).click(),
+  ]);
   await expect(page.getByRole("button", { name: "Shared to feed" })).toBeVisible();
 
   const contextB = await browser.newContext();
@@ -44,8 +51,11 @@ test("toggling sharing makes a story visible in another account's feed, and unsh
   await expect(pageB.getByLabel("Write the next paragraph")).toHaveCount(0);
   await expect(pageB.getByRole("button", { name: "Add & continue" })).toHaveCount(0);
 
-  // A unshares.
-  await page.getByRole("button", { name: "Shared to feed" }).click();
+  // A unshares. Same wait-for-response reasoning as the share above.
+  await Promise.all([
+    page.waitForResponse((r) => r.url().includes("/api/stories/") && r.request().method() === "PATCH"),
+    page.getByRole("button", { name: "Shared to feed" }).click(),
+  ]);
   await expect(page.getByRole("button", { name: "Share to feed" })).toBeVisible();
 
   await pageB.goto("/feed");
