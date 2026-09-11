@@ -9,6 +9,11 @@ import { defineProject } from "vitest/config";
  * Requires TEST_DATABASE_URL (or a Postgres on localhost:5432). `npm run test:db`
  * runs it; `npm test` runs it too, and fails loudly if no database is reachable
  * rather than reporting green on a suite that never executed.
+ *
+ * bench/roundtrips.db.test.ts joins this project rather than vitest.scripts.config.mts's
+ * (bench/report.test.ts's) for the same reason every other `*.db.test.ts` file is
+ * here: it asserts against a real AppDatabase, not a stub, per
+ * docs/plans/v4/01-load-harness.md.
  */
 export default defineProject({
   resolve: {
@@ -19,7 +24,7 @@ export default defineProject({
   test: {
     name: "db",
     environment: "node",
-    include: ["src/**/*.db.test.{ts,tsx}"],
+    include: ["src/**/*.db.test.{ts,tsx}", "bench/**/*.db.test.{ts,tsx}"],
     globalSetup: ["./src/test/global-setup-db.ts"],
     setupFiles: ["./src/test/setup-db.ts"],
     // Database-per-worker keyed on VITEST_POOL_ID. `forks` gives each worker a

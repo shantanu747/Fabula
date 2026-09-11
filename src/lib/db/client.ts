@@ -2,6 +2,7 @@ import { neon, neonConfig } from "@neondatabase/serverless";
 import { drizzle } from "drizzle-orm/neon-http";
 import * as schema from "./schema";
 import type { AppDatabase } from "./types";
+import { getRoundtripCounter } from "../../../bench/roundtrips";
 
 // Constructed lazily, not at module scope — the Neon driver throws immediately if
 // DATABASE_URL isn't set, which would otherwise break `next build`/`next dev` startup
@@ -24,7 +25,18 @@ function createDb() {
 }
 
 export function getDb(): AppDatabase {
-  if (!db) db = createDb();
+  if (!db) {
+    const raw = createDb();
+    // bench/harness.ts (docs/adr/0034) sets this on the app process it spawns,
+    // never in a normal build or deployment — this is the only place that
+    // branch can be taken. Wrapping here, once, at construction, is what lets
+    // the counter see every call through the one shared `db` singleton,
+    // regardless of which route makes it. Kept out of createDb() itself:
+    // getAuthAdapterDb() below also calls createDb() and needs the full
+    // NeonHttpDatabase type (transaction included) for the Auth.js adapter,
+    // which the wrapped/narrowed AppDatabase type can't provide.
+    db = process.env.BENCH_INSTRUMENTATION === "1" ? getRoundtripCounter().wrap(raw) : raw;
+  }
   return db;
 }
 
