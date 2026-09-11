@@ -2,12 +2,15 @@ import { eq } from "drizzle-orm";
 import { auth } from "@/auth";
 import { getDb } from "@/lib/db/client";
 import { stories, storyReports } from "@/lib/db/schema";
+import { guardReport } from "@/lib/ratelimit/guard";
 
 export async function POST(_request: Request, { params }: RouteContext<"/api/stories/[id]/report">) {
   const session = await auth();
   if (!session?.user?.id) {
     return Response.json({ error: "Not authenticated" }, { status: 401 });
   }
+  const limited = await guardReport(session.user.id);
+  if (limited) return limited;
   const { id } = await params;
 
   const db = getDb();

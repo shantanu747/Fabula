@@ -2,6 +2,7 @@ import { count, desc, eq } from "drizzle-orm";
 import { auth } from "@/auth";
 import { getDb } from "@/lib/db/client";
 import { stories, storyParagraphs, users } from "@/lib/db/schema";
+import { guardFeedRead } from "@/lib/ratelimit/guard";
 
 const PAGE_SIZE = 20;
 
@@ -10,6 +11,8 @@ export async function GET(request: Request) {
   if (!session?.user?.id) {
     return Response.json({ error: "Not authenticated" }, { status: 401 });
   }
+  const limited = await guardFeedRead(session.user.id);
+  if (limited) return limited;
 
   const url = new URL(request.url);
   const offset = Math.max(0, Number(url.searchParams.get("offset") ?? 0) || 0);

@@ -1,26 +1,39 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { GET } from "./route";
 import { __setDbForTests } from "@/lib/db/client";
+import { __setKvForTests } from "@/lib/kv/client";
 import type { AppDatabase } from "@/lib/db/types";
 
 function healthRequest(): Request {
   return new Request("http://localhost/api/health");
 }
 
-const ENV_KEYS = ["DATABASE_URL", "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "OPENROUTER_API_KEY"] as const;
+const ENV_KEYS = [
+  "DATABASE_URL",
+  "ANTHROPIC_API_KEY",
+  "OPENAI_API_KEY",
+  "OPENROUTER_API_KEY",
+  "KV_REST_API_URL",
+  "KV_REST_API_TOKEN",
+] as const;
 const originalEnv: Partial<Record<(typeof ENV_KEYS)[number], string>> = {};
 
 beforeEach(() => {
   // CI sets all three provider keys at job level (ci.yml) — a test that
   // assumes they're unset can pass locally and fail in CI, or vice versa here,
-  // the same trap AGENTS.md calls out for DATABASE_URL. Save and clear all
-  // four so this suite's "false" assertions test its own logic, not whichever
-  // shell happened to run it.
+  // the same trap AGENTS.md calls out for DATABASE_URL. Save and clear all six
+  // so this suite's "false" assertions test its own logic, not whichever
+  // shell happened to run it. KV_REST_API_URL/TOKEN matter here for the same
+  // reason: guardHealth() runs consumeToken(), which prefers Redis over
+  // Postgres whenever hasKv() is true (docs/adr/0035), and this suite's own
+  // fake-timer-driven timeout tests below assume that call reaches the fake
+  // AppDatabase they install, not a real network round trip to Redis.
   for (const key of ENV_KEYS) {
     originalEnv[key] = process.env[key];
     delete process.env[key];
   }
   __setDbForTests(undefined);
+  __setKvForTests(undefined);
 });
 
 afterEach(() => {
@@ -29,6 +42,7 @@ afterEach(() => {
     else process.env[key] = originalEnv[key];
   }
   __setDbForTests(undefined);
+  __setKvForTests(undefined);
   vi.restoreAllMocks();
 });
 

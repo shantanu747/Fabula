@@ -8,12 +8,23 @@ import { createStory, createUser, readParagraphs, seedParagraphs } from "@/test/
 import { sessionForUser, setTestSession } from "@/test/session";
 import { createBarrier } from "@/test/latch";
 import { GENERATE_GUEST } from "@/lib/ratelimit/policy";
+import { neutralizeKvForEachTest } from "@/test/kv";
 
 /**
  * The persisted half of /api/generate — the path the guest specs in
  * route.test.ts deliberately never touch. Everything here depends on what the
  * database does under concurrency, so it runs against a real Postgres.
+ *
+ * Admission control and spend governance both fail open with no Redis
+ * configured (docs/adr/0035), so neutralizing it here doesn't skip anything
+ * this file is meant to test — those are covered directly in
+ * route.test.ts's own "admission control"/"budget governance" blocks and in
+ * lease.db.test.ts / store.parity.db.test.ts. What this file's own rate-limit
+ * assertions need is the Postgres bucket behaviour specifically, which a real
+ * Redis happening to be configured for the run would otherwise silently
+ * redirect away from.
  */
+neutralizeKvForEachTest();
 
 const FAKE_ID = "fake-provider";
 

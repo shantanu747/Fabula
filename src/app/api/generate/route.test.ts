@@ -20,6 +20,10 @@ vi.mock("@/auth", async () => {
 
 import { POST } from "./route";
 import { __setDbForTests } from "@/lib/db/client";
+import type { AppDatabase } from "@/lib/db/types";
+import { __setKvForTests } from "@/lib/kv/client";
+import { createFakeAdmissionKv, throwingKv } from "@/test/kv";
+import { acquireLease } from "@/lib/admission/lease";
 import { PROVIDERS } from "@/lib/providers/registry";
 import { FIRST_CHUNK_TIMEOUT_MS, MAX_OUTPUT_TOKENS } from "@/lib/providers/constants";
 import type {
@@ -161,6 +165,8 @@ function validBody(overrides: Record<string, unknown> = {}) {
 }
 
 let originalDatabaseUrl: string | undefined;
+let originalKvUrl: string | undefined;
+let originalKvToken: string | undefined;
 // registry.ts's isConfigured/suggestAlternative read these directly, and CI
 // sets all three at the job level (see ci.yml) so `next build` succeeds — the
 // same ambient-env trap DATABASE_URL has below. Cleared here so a 502's
@@ -184,6 +190,20 @@ beforeEach(() => {
   delete process.env.DATABASE_URL;
   __setDbForTests(undefined);
 
+  // Same ambient-env trap, for KV_REST_API_URL/TOKEN (docs/adr/0035): CI's
+  // `build` job sets these at the job level for store.parity.db.test.ts and
+  // lease.db.test.ts's benefit, and `npm run test:coverage` runs this unit
+  // project in the same process. Without this, every guest request in this
+  // file would share one real admission lease (PER_IDENTITY_CAP is 2) instead
+  // of the fails-open-with-nothing-configured behaviour most of this file
+  // assumes — the "admission control" describe block below injects its own
+  // fake KV per test, which still works: it runs after this reset.
+  originalKvUrl = process.env.KV_REST_API_URL;
+  originalKvToken = process.env.KV_REST_API_TOKEN;
+  delete process.env.KV_REST_API_URL;
+  delete process.env.KV_REST_API_TOKEN;
+  __setKvForTests(undefined);
+
   originalProviderEnv = Object.fromEntries(PROVIDER_ENV_VARS.map((v) => [v, process.env[v]]));
   for (const v of PROVIDER_ENV_VARS) delete process.env[v];
   // The structured logger (src/lib/observability/logger.ts) writes every level
@@ -197,11 +217,16 @@ afterEach(() => {
   delete PROVIDERS[FAKE_ID];
   if (originalDatabaseUrl === undefined) delete process.env.DATABASE_URL;
   else process.env.DATABASE_URL = originalDatabaseUrl;
+  if (originalKvUrl === undefined) delete process.env.KV_REST_API_URL;
+  else process.env.KV_REST_API_URL = originalKvUrl;
+  if (originalKvToken === undefined) delete process.env.KV_REST_API_TOKEN;
+  else process.env.KV_REST_API_TOKEN = originalKvToken;
   for (const v of PROVIDER_ENV_VARS) {
     if (originalProviderEnv[v] === undefined) delete process.env[v];
     else process.env[v] = originalProviderEnv[v];
   }
   __setDbForTests(undefined);
+  __setKvForTests(undefined);
   vi.restoreAllMocks();
   vi.useRealTimers();
 });
@@ -656,5 +681,131 @@ describe("POST /api/generate — OTel spans", () => {
     expect(spans).toHaveLength(1);
     expect(spans[0].attributes["fabula.outcome"]).toBe("provider_error");
     expect(spans[0].status.code).toBe(SpanStatusCode.ERROR);
+  });
+});
+
+describe("POST /api/generate — admission control", () => {
+  function guestKey(): string {
+    // Mirrors route.ts's own `guest:${clientIp(request)}` identity for the
+    // guest requests this describe block posts (no x-forwarded-for header,
+    // so clientIp() resolves to "unknown" — see policy.ts).
+    return "admission:identity:guest:unknown";
+  }
+
+  it("refuses a generation once the caller's slots are already held, with a distinct kind", async () => {
+    __setKvForTests(createFakeAdmissionKv());
+    installFake();
+    // Simulates two already-in-flight generations from this same guest
+    // identity (route.ts's `guest:${clientIp(request)}`, "unknown" here — no
+    // proxy header in this suite) without needing a genuinely pending request:
+    // PER_IDENTITY_CAP is 2, so both slots are now held.
+    await acquireLease("guest:unknown");
+    await acquireLease("guest:unknown");
+
+    const response = await POST(post(validBody()));
+
+    expect(response.status).toBe(429);
+    await expect(response.json()).resolves.toMatchObject({ kind: "at-capacity" });
+    expect(response.headers.get("Retry-After")).toBeTruthy();
+    expect(lastInput).toBeUndefined(); // never reached the provider, never billed
+  });
+
+  it.each<[string, () => void]>([
+    ["success", () => installFake({ chunks: ["Once upon a time."], usage: { inputTokens: 1, outputTokens: 1 } })],
+    ["a provider error before the first chunk", () => installFake({ throwBeforeFirstChunk: true })],
+    ["a mid-stream provider error", () => installFake({ chunks: ["begin"], throwAfterChunks: true })],
+  ])("acquisitions balance to zero after %s", async (_label, setUp) => {
+    const kv = createFakeAdmissionKv();
+    __setKvForTests(kv);
+    setUp();
+    vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const response = await POST(post(validBody()));
+    await response.text().catch(() => {});
+
+    expect(kv.counts.get(guestKey()) ?? 0).toBe(0);
+    expect(kv.counts.get("admission:global") ?? 0).toBe(0);
+  });
+
+  it("acquisitions balance to zero when the client disconnects before the first chunk", async () => {
+    const kv = createFakeAdmissionKv();
+    __setKvForTests(kv);
+    installFake({ hang: true });
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const controller = new AbortController();
+
+    const responsePromise = POST(post(validBody(), { signal: controller.signal }));
+    controller.abort();
+    await responsePromise;
+
+    expect(kv.counts.get(guestKey()) ?? 0).toBe(0);
+    expect(kv.counts.get("admission:global") ?? 0).toBe(0);
+  });
+
+  it("acquisitions balance to zero on a mid-stream client disconnect", async () => {
+    const kv = createFakeAdmissionKv();
+    __setKvForTests(kv);
+    installFake({ chunks: ["one", "two", "three"] });
+
+    const response = await POST(post(validBody()));
+    const reader = response.body!.getReader();
+    await reader.read();
+    await reader.cancel("writer navigated away");
+
+    expect(kv.counts.get(guestKey()) ?? 0).toBe(0);
+    expect(kv.counts.get("admission:global") ?? 0).toBe(0);
+  });
+
+  it("fails open — a story still generates when Redis throws on every call", async () => {
+    __setKvForTests(throwingKv());
+    installFake({ chunks: ["Still works."] });
+
+    const response = await POST(post(validBody()));
+
+    expect(response.status).toBe(200);
+    await expect(response.text()).resolves.toBe("Still works.");
+  });
+});
+
+describe("POST /api/generate — budget governance", () => {
+  /** Rate limiting must pass (execute -> allowed) for the request to reach the
+   *  budget check at all; the select/from/where chain is checkBudget's own
+   *  Postgres reconciliation path (no Redis in these tests). */
+  function fakeBudgetDb(totalSpendUsd: number): AppDatabase {
+    return {
+      execute: async () => ({ rows: [{ tokens: 10 }] }),
+      select: () => ({ from: () => ({ where: async () => [{ total: String(totalSpendUsd) }] }) }),
+    } as unknown as AppDatabase;
+  }
+
+  it("refuses with a distinct kind, before ever calling the provider, once the budget is exceeded", async () => {
+    process.env.DATABASE_URL = "postgres://fake-for-this-test";
+    __setDbForTests(fakeBudgetDb(1000)); // comfortably over every cap in src/lib/budget/index.ts
+    installFake();
+
+    const response = await POST(post(validBody()));
+
+    expect(response.status).toBe(429);
+    await expect(response.json()).resolves.toMatchObject({ kind: "budget-exceeded" });
+    expect(lastInput).toBeUndefined(); // never reached the provider, never billed
+  });
+
+  it("generates normally when spend is well under every cap", async () => {
+    process.env.DATABASE_URL = "postgres://fake-for-this-test";
+    __setDbForTests(fakeBudgetDb(0));
+    installFake({ chunks: ["Under budget."] });
+
+    const response = await POST(post(validBody()));
+
+    expect(response.status).toBe(200);
+    await expect(response.text()).resolves.toBe("Under budget.");
+  });
+
+  it("skips the budget check entirely when no database is configured — guest writing must not gain a new hard dependency", async () => {
+    installFake({ chunks: ["Still works with no database."] });
+
+    const response = await POST(post(validBody()));
+
+    expect(response.status).toBe(200);
   });
 });
