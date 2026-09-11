@@ -1,7 +1,22 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { __setDbForTests } from "@/lib/db/client";
 import type { AppDatabase } from "@/lib/db/types";
-import { guardGenerate, guardHealth, guardRegister } from "./guard";
+import { neutralizeKvForEachTest } from "@/test/kv";
+import {
+  guardFeedRead,
+  guardGenerate,
+  guardHealth,
+  guardRegister,
+  guardReport,
+  guardStoriesRead,
+  guardStoriesWrite,
+} from "./guard";
+
+// This file's fake-database tests assert on the Postgres path specifically
+// (installFailingDb() below stubs AppDatabase.execute, which Redis-routed
+// calls would never reach) — see kv/client.test.ts's comment on the ambient
+// CI env var this guards against.
+neutralizeKvForEachTest();
 
 /**
  * How the guard behaves when the database is unavailable or unhappy. Both are
@@ -35,6 +50,10 @@ describe("with no database configured", () => {
     ["a signed-in generation", () => guardGenerate(request(), "user-1")],
     ["a registration", () => guardRegister(request())],
     ["a health check", () => guardHealth(request())],
+    ["a stories read", () => guardStoriesRead("user-1")],
+    ["a stories write", () => guardStoriesWrite("user-1")],
+    ["a feed read", () => guardFeedRead("user-1")],
+    ["a report", () => guardReport("user-1")],
   ])("allows %s and says so", async (_label, guard) => {
     // Guest writing has never required a database (docs/adr/0009), and rate
     // limiting must not quietly make Postgres a hard requirement for running
@@ -88,5 +107,40 @@ describe("when the bucket query fails", () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
 
     await expect(guardHealth(request())).resolves.toBeNull();
+  });
+
+  it.each([
+    ["a stories read", () => guardStoriesRead("user-1")],
+    ["a stories write", () => guardStoriesWrite("user-1")],
+    ["a feed read", () => guardFeedRead("user-1")],
+    ["a report", () => guardReport("user-1")],
+  ])("denies %s rather than letting it through", async (_label, guard) => {
+    installFailingDb();
+    vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const response = await guard();
+
+    expect(response?.status).toBe(429);
+  });
+});
+
+describe("guardGenerate — no identifying signal at all", () => {
+  function requestWithNoProxyHeaders(): Request {
+    return new Request("http://localhost/api/generate", { method: "POST" });
+  }
+
+  it("does not throw, and still resolves to allow or deny", async () => {
+    // The behavioral claim — that this lands under the stricter, shared
+    // GENERATE_GUEST_UNIDENTIFIED bucket rather than GENERATE_GUEST's — is
+    // verified against a real bucket row in guard.db.test.ts, where the
+    // written key can actually be inspected. This test only needs a fake
+    // Postgres double, so it stays here.
+    __setDbForTests({
+      execute: async () => ({ rows: [{ tokens: 4 }] }),
+    } as unknown as AppDatabase);
+
+    const result = await guardGenerate(requestWithNoProxyHeaders(), undefined);
+
+    expect(result === null || result instanceof Response).toBe(true);
   });
 });

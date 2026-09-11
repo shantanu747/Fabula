@@ -1,6 +1,7 @@
 import { sql } from "drizzle-orm";
 import { rateLimitBuckets } from "@/lib/db/schema";
 import type { AppDatabase } from "@/lib/db/types";
+import { getKv, hasKv, withKvTimeout } from "@/lib/kv/client";
 import { bucketKey, retryAfterSeconds, type RateLimitPolicy } from "./policy";
 
 export type RateLimitResult =
@@ -8,10 +9,83 @@ export type RateLimitResult =
   | { allowed: false; retryAfterSeconds: number };
 
 /**
+ * Refill, check, and decrement as one atomic step — the Lua-script equivalent
+ * of store.ts's Postgres upsert, and atomic for the same reason: a Redis
+ * script runs to completion without another command interleaving, so the
+ * whole read-modify-write happens in a place nothing else can observe halfway
+ * through. `HMGET` on a key that has never been written returns `false` for
+ * every field, which is how a bucket starts full rather than needing a
+ * separate "does this key exist" branch.
+ *
+ * Returns `{ allowed, tokens (post-op remaining, or current on denial),
+ * elapsedSeconds }` — the same three numbers store.ts's Postgres path
+ * produces, so both backends can be reduced to a RateLimitResult by the same
+ * `retryAfterSeconds` helper (docs/adr/0035's parity discipline).
+ */
+const BUCKET_SCRIPT = `
+local tokens = tonumber(redis.call('HGET', KEYS[1], 'tokens'))
+local updatedAt = tonumber(redis.call('HGET', KEYS[1], 'updatedAt'))
+local capacity = tonumber(ARGV[1])
+local refill = tonumber(ARGV[2])
+local now = tonumber(ARGV[3])
+
+if tokens == nil then
+  tokens = capacity
+  updatedAt = now
+end
+
+local elapsed = math.max(0, (now - updatedAt) / 1000)
+local refilled = math.min(capacity, tokens + elapsed * refill)
+
+local allowed = 0
+local resultTokens = refilled
+if refilled >= 1 then
+  allowed = 1
+  resultTokens = refilled - 1
+end
+
+redis.call('HSET', KEYS[1], 'tokens', tostring(resultTokens), 'updatedAt', tostring(now))
+-- Time to fully refill from empty, plus margin: an idle bucket expires instead
+-- of persisting forever. Postgres has the same idle-row problem, which is why
+-- it needs the cron prune job; Redis just lets the key die on its own.
+redis.call('EXPIRE', KEYS[1], math.ceil(capacity / refill) + 60)
+
+return {allowed, tostring(resultTokens), tostring(elapsed)}
+`;
+
+async function consumeTokenKv(
+  policy: RateLimitPolicy,
+  identity: string
+): Promise<RateLimitResult | undefined> {
+  return withKvTimeout(async () => {
+    const key = bucketKey(policy, identity);
+    const now = Date.now();
+    const [allowed, tokens, elapsed] = await getKv().eval<string[], [number, string, string]>(
+      BUCKET_SCRIPT,
+      [key],
+      [String(policy.capacity), String(policy.refillPerSecond), String(now)]
+    );
+    if (allowed === 1) {
+      return { allowed: true, remaining: Math.floor(Number(tokens)) };
+    }
+    return {
+      allowed: false,
+      retryAfterSeconds: retryAfterSeconds(policy, Number(tokens), Number(elapsed)),
+    };
+  });
+}
+
+/**
  * Takes one token from a caller's bucket, refilling it for elapsed time first.
  *
- * The whole algorithm is one statement, which is what makes it correct under
- * concurrency and what makes it work on this stack at all:
+ * Redis first when configured, Postgres always as the fallback — never the
+ * other way around, and never a hard dependency on Redis (docs/adr/0035:
+ * Redis is never authoritative). `consumeTokenKv` already collapses "Redis
+ * absent", "timed out", and "threw" into the same `undefined`, so the only
+ * thing this function decides is which backend answered; `guard.ts` cannot
+ * tell the difference.
+ *
+ * The Postgres path's own correctness argument:
  *
  *  - Correctness. Read-then-write across two statements is the same TOCTOU that
  *    duplicated paragraph positions: two simultaneous requests both read four
@@ -27,6 +101,18 @@ export type RateLimitResult =
  * rows, and that absence is the denial.
  */
 export async function consumeToken(
+  db: AppDatabase,
+  policy: RateLimitPolicy,
+  identity: string
+): Promise<RateLimitResult> {
+  if (hasKv()) {
+    const kvResult = await consumeTokenKv(policy, identity);
+    if (kvResult) return kvResult;
+  }
+  return consumeTokenPostgres(db, policy, identity);
+}
+
+async function consumeTokenPostgres(
   db: AppDatabase,
   policy: RateLimitPolicy,
   identity: string

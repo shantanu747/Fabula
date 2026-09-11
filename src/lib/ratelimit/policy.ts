@@ -29,6 +29,23 @@ export const GENERATE_GUEST: RateLimitPolicy = {
 };
 
 /**
+ * Applied instead of GENERATE_GUEST when `clientIp` cannot name an individual
+ * caller (`UNIDENTIFIED_GUEST_IP`). Every guest in that state shares this one
+ * bucket, so its numbers describe the whole population's budget, not one
+ * person's — capacity is left at 5 (a lone local-dev "clone it and try the
+ * guest flow" run still works without friction) but the sustained rate is cut
+ * 10x versus GENERATE_GUEST, so that if this bucket ever *is* absorbing more
+ * than one real caller (no proxy in front of a self-hosted deployment, or this
+ * app's own E2E suite), it becomes unusable quickly rather than quietly
+ * handing out a normal per-caller budget to an unbounded number of callers.
+ */
+export const GENERATE_GUEST_UNIDENTIFIED: RateLimitPolicy = {
+  scope: "generate:guest:unidentified",
+  capacity: 5,
+  refillPerSecond: 1 / 300,
+};
+
+/**
  * A signed-in Writer has a real account behind them and a story in progress, so
  * they get a larger burst and four generations a minute sustained. Still a cap:
  * a compromised account should not be able to spend without limit either.
@@ -66,24 +83,103 @@ export const REGISTER: RateLimitPolicy = {
 };
 
 /**
+ * Reads are cheap (an indexed select, no provider call) and can be generous —
+ * a library or feed page load fires one, and paging through it fires a handful
+ * more in quick succession. Both `/api/stories` GET and `/api/stories/[id]` GET
+ * require a session already, so identity is always the account.
+ */
+export const STORIES_READ: RateLimitPolicy = {
+  scope: "stories:read",
+  capacity: 60,
+  refillPerSecond: 1,
+};
+
+/**
+ * Writes cost more (an insert, or an update plus the ownership select before
+ * it) and happen rarely in a real session — starting a story, toggling
+ * `isShared`, changing `targetLength`. A handful per minute covers every real
+ * pattern while bounding a scripted insert flood.
+ */
+export const STORIES_WRITE: RateLimitPolicy = {
+  scope: "stories:write",
+  capacity: 10,
+  refillPerSecond: 1 / 10,
+};
+
+/** Same shape as STORIES_READ — browsing/paginating the shared feed. */
+export const FEED_READ: RateLimitPolicy = {
+  scope: "feed:read",
+  capacity: 60,
+  refillPerSecond: 1,
+};
+
+/**
+ * The strictest policy in the file. A real reader reports a story at most once
+ * or twice, ever — the unique `(storyId, reporterId)` constraint already makes
+ * a repeat report a no-op — but every call still writes a row before that
+ * constraint is checked, so this is the one read-adjacent-cost route that must
+ * not be generous.
+ */
+export const REPORT: RateLimitPolicy = {
+  scope: "report",
+  capacity: 3,
+  refillPerSecond: 1 / 600,
+};
+
+/**
+ * Number of trusted hops between the caller and this app that append to
+ * `x-forwarded-for` on the way in. Vercel is one hop, appending exactly once;
+ * a self-hosted deployment with its own ingress in front of Vercel (or another
+ * proxy) would be two. Configurable rather than hardcoded because this is a
+ * deployment-topology fact this codebase cannot know on its own.
+ */
+function trustedProxyHopCount(): number {
+  const raw = process.env.TRUSTED_PROXY_HOP_COUNT;
+  const parsed = raw ? Number(raw) : NaN;
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : 1;
+}
+
+/**
  * The client address, read from the proxy headers the hosting platform sets.
  *
- * The leftmost x-forwarded-for entry is the original client *only* when a
- * trusted proxy rewrites the header on the way in, which is the case on Vercel
- * and behind any correctly configured ingress. Self-hosted behind something that
- * merely appends, a caller can spoof the left entry and mint themselves fresh
- * buckets — in that deployment this must read from the right instead, counting
- * back the number of proxies. Signed-in Writers are unaffected either way: they
- * are keyed by user id.
+ * `x-forwarded-for` is only as trustworthy as whoever wrote to it last. A
+ * proxy that *appends* the address it received the request from (Vercel's
+ * behaviour) means every entry added by a hop you control lands on the
+ * *right*; anything to the left of that is whatever the caller supplied,
+ * including a spoofed value designed to mint a fresh bucket on every request.
+ * The old code read the leftmost entry — exactly the attacker-controlled one.
+ *
+ * Reading the Nth entry from the right, where N is `TRUSTED_PROXY_HOP_COUNT`,
+ * is what actually names the real client: with one trusted hop (the default,
+ * and Vercel's case) that is the last entry. If the header has fewer entries
+ * than the configured hop count, it cannot have been written entirely by
+ * infrastructure this deployment controls, so it is treated as absent rather
+ * than trusted.
+ *
+ * Returns `"unknown"` when nothing usable is present (no proxy in front of the
+ * app at all — local dev, or a raw request straight to the app). Callers must
+ * not treat that string as an individual caller's identity: see
+ * `guardGenerate`'s handling of it, which applies a much stricter, shared
+ * ceiling instead of the normal per-guest policy — an unidentifiable
+ * population is bounded in aggregate rather than pretended to be one caller.
+ * Signed-in Writers are unaffected either way: they are keyed by user id.
  */
 export function clientIp(request: Request): string {
   const forwarded = request.headers.get("x-forwarded-for");
   if (forwarded) {
-    const first = forwarded.split(",")[0].trim();
-    if (first) return first;
+    const parts = forwarded
+      .split(",")
+      .map((part) => part.trim())
+      .filter(Boolean);
+    const hopCount = trustedProxyHopCount();
+    const index = parts.length - hopCount;
+    if (index >= 0 && parts[index]) return parts[index];
   }
   return request.headers.get("x-real-ip")?.trim() || "unknown";
 }
+
+/** The identity `clientIp` falls back to when no proxy header is usable at all. */
+export const UNIDENTIFIED_GUEST_IP = "unknown";
 
 /**
  * The bucket key for a request.
