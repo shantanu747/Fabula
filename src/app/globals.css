@@ -374,3 +374,20 @@
   height: 100%;
   min-height: 44px;
 }
+
+/*
+ * A shared story is set as a printed piece (docs/adr/0033, board 1e): drop the
+ * nav header and the footer's actions/Report row, and let the masthead and
+ * prose fill the page instead of sitting in a narrow screen-width column.
+ */
+@media print {
+  .print-shared-story > header,
+  .print-shared-story footer {
+    display: none;
+  }
+
+  .print-shared-story main {
+    max-width: none;
+    padding: 0;
+  }
+}
