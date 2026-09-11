@@ -197,5 +197,17 @@ export const generationEvents = pgTable(
       .notNull(),
     createdAt: timestamp("createdAt", { mode: "date" }).notNull().defaultNow(),
   },
-  (t) => [index().on(t.userId), index().on(t.createdAt)]
+  (t) => [
+    // Composite, not the single-column userId index this replaces
+    // (docs/adr/0036): the budget module's per-user reconciliation query is
+    // `WHERE userId = $1 AND createdAt >= $2`, a range on the second column,
+    // which a userId-only index cannot serve without a further sort/filter
+    // step. DESC written as raw SQL rather than t.createdAt.desc() for the
+    // same NULLS LAST/NULLS FIRST mismatch reason as
+    // story_ownerId_updatedAt_index above — createdAt is NOT NULL, so this
+    // changes nothing semantically, only whether the index is usable.
+    index("generation_event_userId_createdAt_index").on(t.userId, sql`"createdAt" DESC`),
+    // Kept for the global (no userId filter) reconciliation query.
+    index().on(t.createdAt),
+  ]
 );

@@ -29,6 +29,13 @@
       "when": 1788284354949,
       "tag": "0003_minor_oracle",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1789115928608,
+      "tag": "0004_remarkable_mongoose",
+      "breakpoints": true
     }
   ]
 }
