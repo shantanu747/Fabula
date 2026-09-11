@@ -6,7 +6,7 @@ Accepted.
 
 ## Context
 
-The visual redesign (`design_handoff_fabula_redesign/`) replaces the palette, fonts and radius
+The visual redesign (`docs/design/`) replaces the palette, fonts and radius
 in `src/app/globals.css` with the Classical design system's tokens. Its README states a contrast
 ratio next to each color and asks that the existing accessibility work be carried forward
 unchanged. `e2e/specs/accessibility.spec.ts` (ADR 0027) enforces that with axe at the

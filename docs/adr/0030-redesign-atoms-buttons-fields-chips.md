@@ -6,7 +6,7 @@ Accepted.
 
 ## Context
 
-Phase 2 of the visual redesign (`design_handoff_fabula_redesign/README.md`, "Component specs")
+Phase 2 of the visual redesign (`docs/design/handoff.md`, "Component specs")
 replaces every filled button, boxed input, and pill in the codebase with the Classical system's
 atoms: a 1px-stroke button on transparent, a bottom-rule-only field, a 3px-radius chip, and an
 inline SVG mark. Four choices along the way were not straightforward transcriptions of the spec.
