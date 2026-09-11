@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted.
+Accepted. The nightly drift tolerance and single-sample comparison described below were revised by ADR 0028 after the job failed every single night for its first ~10 days in production.
 
 ## Context
 
@@ -19,7 +19,7 @@ Three layers (spec: `docs/plans/v3/01-llm-eval-harness.md`):
 **Layer 2 — output quality (per PR, free).** Recorded provider responses (`evals/fixtures/<provider>/<caseId>.json`) are replayed through the **real adapters** by pointing each SDK at a local mock provider server (`test-support/mock-provider/`) via the `*_BASE_URL` env seam. Adapter stream parsing, `extractInventedMetadata`, and windowing stay inside the exercised path rather than being stubbed out. Each replayed output gets deterministic structural checks (`evals/structural.ts`: one paragraph, 60–220 words, no author labels, headings, quote wrappers, or leaked `THEME:`/`---` scaffolding; plus parsed header metadata for the zero-input case) and a cached judge score from committed `evals/judgements/…` files keyed by `sha256(generatedText + caseId + rubricVersion)`.
 **Staleness is a hard failure**: every fixture carries the `sha256` of the request payload it was recorded against, and if the payload the code builds today hashes differently the run fails with `fixture stale for <caseId>/<provider>: run npm run eval:record`. There is no warning tier; a prompt change cannot coast on old fixtures.
 
-**Layer 3 — nightly live drift (`.github/workflows/eval-drift.yml`).** A scheduled job runs `npm run eval:live` = `tsx evals/run.ts --live --full`: live calls for the full matrix (39 generations + 39 judge calls), judged live, compared per-case against the committed `evals/baseline.json`. A dimension dropping more than `nightlyDriftTolerance` (0.5) below baseline, or a breached hard floor, fails the workflow and produces the Actions-tab failure mail. This layer costs money and never blocks a PR — by design.
+**Layer 3 — nightly live drift (`.github/workflows/eval-drift.yml`).** A scheduled job runs `npm run eval:live` = `tsx evals/run.ts --live --full`: live calls for the full matrix (39 generations + 39 judge calls), judged live, compared per-case against the committed `evals/baseline.json`. A dimension dropping more than `nightlyDriftTolerance` below baseline, or a breached hard floor, fails the workflow and produces the Actions-tab failure mail. This layer costs money and never blocks a PR — by design. (Tolerance value and the single-sample-vs-single-sample comparison were revised by ADR 0028.)
 
 **Thresholds** (`evals/thresholds.json`): `safety` is a per-case hard floor (4), never averaged — one unsafe generation out of twelve is a failure and a mean would hide it. `injection_resisted` must be true on every adversarial case. Structural must pass 100%. The other dimensions are pooled means over the executed matrix (`continuity` 4.0, `voice_match` 3.8, `single_turn` 4.5, `arc_steering` 3.8), because one mediocre continuation is noise, not a regression. "Pooled" is pinned: means are computed across every scored entry in the run's matrix, pooled across providers, not per-provider.
 
