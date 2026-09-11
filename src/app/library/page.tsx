@@ -1,10 +1,10 @@
 import Link from "next/link";
-import { count, desc, eq } from "drizzle-orm";
 import { auth } from "@/auth";
 import { getDb } from "@/lib/db/client";
-import { stories, storyParagraphs } from "@/lib/db/schema";
+import { getLibraryPage } from "@/lib/db/feedAndLibrary";
 import { AppHeader } from "@/components/AppHeader";
-import { ShareToggle } from "@/components/ShareToggle";
+import { LibraryStoryRow } from "@/components/LibraryStoryRow";
+import { LibraryLoadMore } from "@/components/LibraryLoadMore";
 
 export default async function Library() {
   const session = await auth();
@@ -13,21 +13,7 @@ export default async function Library() {
     return null;
   }
 
-  const rows = await getDb()
-    .select({
-      id: stories.id,
-      theme: stories.theme,
-      characters: stories.characters,
-      targetLength: stories.targetLength,
-      isShared: stories.isShared,
-      updatedAt: stories.updatedAt,
-      paragraphCount: count(storyParagraphs.id),
-    })
-    .from(stories)
-    .leftJoin(storyParagraphs, eq(storyParagraphs.storyId, stories.id))
-    .where(eq(stories.ownerId, session.user.id))
-    .groupBy(stories.id)
-    .orderBy(desc(stories.updatedAt));
+  const { rows, nextCursor } = await getLibraryPage(getDb(), session.user.id);
 
   return (
     <div className="flex flex-1 flex-col bg-background">
@@ -53,26 +39,14 @@ export default async function Library() {
               to see it here.
             </p>
           ) : (
-            <ul className="mt-6 flex flex-col border-t border-border pb-12">
-              {rows.map((story) => (
-                <li
-                  key={story.id}
-                  className="flex flex-wrap items-center justify-between gap-3 border-b border-border py-4"
-                >
-                  <Link href={`/story?storyId=${story.id}`} className="group min-w-0 flex-1">
-                    <p className="truncate font-heading text-[21px] font-semibold leading-[1.2] text-foreground transition-colors group-hover:text-accent-text">
-                      {story.theme || story.characters || "Untitled story"}
-                    </p>
-                    <p className="mt-1 text-[12.5px] text-muted">
-                      {story.paragraphCount} paragraph{story.paragraphCount === 1 ? "" : "s"} · ~
-                      {story.targetLength} target · updated{" "}
-                      {new Date(story.updatedAt).toLocaleDateString()}
-                    </p>
-                  </Link>
-                  <ShareToggle storyId={story.id} initialShared={story.isShared} />
-                </li>
-              ))}
-            </ul>
+            <>
+              <ul className={nextCursor === null ? "mt-6 flex flex-col border-t border-border pb-12" : "mt-6 flex flex-col border-t border-border"}>
+                {rows.map((story) => (
+                  <LibraryStoryRow key={story.id} story={story} />
+                ))}
+              </ul>
+              <LibraryLoadMore initialNextCursor={nextCursor} />
+            </>
           )}
         </div>
       </div>

@@ -1,50 +1,24 @@
-"use client";
-
-import { useEffect, useRef, useState } from "react";
-import Link from "next/link";
+import { auth } from "@/auth";
+import { getDb } from "@/lib/db/client";
+import { getCachedFeedPage0 } from "@/lib/db/feedCache";
 import { AppHeader } from "@/components/AppHeader";
+import { FeedStoryRow } from "@/components/FeedStoryRow";
+import { FeedLoadMore } from "@/components/FeedLoadMore";
 
-interface FeedStory {
-  id: string;
-  theme: string | null;
-  characters: string | null;
-  authorName: string | null;
-  paragraphCount: number;
-  updatedAt: string;
-}
+// Explicit, not just implied by auth()'s use of cookies(): this page's
+// content is per-request (a Writer's own session plus whatever's currently
+// shared), so it should never be a candidate for static generation or the
+// server-side Full Route Cache, regardless of how those defaults evolve.
+export const dynamic = "force-dynamic";
 
-export default function Feed() {
-  const [stories, setStories] = useState<FeedStory[]>([]);
-  const [nextOffset, setNextOffset] = useState<number | null>(0);
-  // Starts true so the initial-mount fetch doesn't need to set it synchronously
-  // from inside the effect (react-hooks/set-state-in-effect flags that).
-  const [isLoading, setIsLoading] = useState(true);
-  // Guards against React strict mode's double-invoked mount effect (and a "Load
-  // more" double click) re-appending the same page — a response for an offset
-  // already merged is dropped rather than de-duplicated after the fact.
-  const mergedOffsets = useRef(new Set<number>());
-
-  function fetchPage(offset: number) {
-    fetch(`/api/feed?offset=${offset}`)
-      .then((res) => res.json())
-      .then((data: { stories: FeedStory[]; nextOffset: number | null }) => {
-        if (mergedOffsets.current.has(offset)) return;
-        mergedOffsets.current.add(offset);
-        setStories((prev) => [...prev, ...data.stories]);
-        setNextOffset(data.nextOffset);
-      })
-      .finally(() => setIsLoading(false));
+export default async function Feed() {
+  const session = await auth();
+  if (!session?.user?.id) {
+    // Belt-and-suspenders — proxy.ts already redirects unauthenticated requests here.
+    return null;
   }
 
-  function loadMore() {
-    if (nextOffset === null || isLoading) return;
-    setIsLoading(true);
-    fetchPage(nextOffset);
-  }
-
-  useEffect(() => {
-    fetchPage(0);
-  }, []);
+  const { rows, nextCursor } = await getCachedFeedPage0(getDb());
 
   return (
     <div className="flex flex-1 flex-col bg-background">
@@ -63,39 +37,17 @@ export default function Feed() {
             that shouldn&apos;t be here, use the Report button on that story.
           </p>
 
-          {stories.length === 0 && !isLoading ? (
+          {rows.length === 0 ? (
             <p className="py-10 text-center text-[13.5px] italic text-muted">No shared stories yet.</p>
           ) : (
             <ul className="flex flex-col">
-              {stories.map((story) => (
-                <li key={story.id} className="border-b border-border">
-                  <Link href={`/feed/${story.id}`} className="group block py-4">
-                    <p className="truncate font-heading text-[21px] font-semibold leading-[1.2] text-foreground transition-colors group-hover:text-accent-text">
-                      {story.theme || story.characters || "Untitled story"}
-                    </p>
-                    <p className="mt-1 text-[12.5px] text-muted">
-                      by {story.authorName ?? "a Writer"} · {story.paragraphCount} paragraph
-                      {story.paragraphCount === 1 ? "" : "s"} · updated{" "}
-                      {new Date(story.updatedAt).toLocaleDateString()}
-                    </p>
-                  </Link>
-                </li>
+              {rows.map((story) => (
+                <FeedStoryRow key={story.id} story={story} />
               ))}
             </ul>
           )}
 
-          {nextOffset !== null && (
-            <div className="mt-8 pb-12">
-              <button
-                type="button"
-                onClick={loadMore}
-                disabled={isLoading}
-                className="btn btn-secondary btn-block"
-              >
-                {isLoading ? "Loading…" : "Load more"}
-              </button>
-            </div>
-          )}
+          <FeedLoadMore initialNextCursor={nextCursor} />
         </div>
       </div>
     </div>

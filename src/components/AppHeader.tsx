@@ -20,7 +20,14 @@ export function AuthLinks({ guestLinks = true }: { guestLinks?: boolean }) {
         <Link href="/library" className={NAV_LINK}>
           My library
         </Link>
-        <Link href="/feed" className={NAV_LINK}>
+        {/* prefetch={false}: this Link is visible on every authenticated page,
+            so default (viewport-triggered) prefetching would fire a background
+            request to /feed well before a Writer actually clicks it —
+            needless load against feedCache.ts's server-side cache (and the
+            query behind it) for a page whose whole value is showing what's
+            currently shared, not what was shared whenever the link happened
+            to scroll into view. */}
+        <Link href="/feed" prefetch={false} className={NAV_LINK}>
           Feed
         </Link>
         {/* data-testid, not a role/text query: the name/email varies per test
