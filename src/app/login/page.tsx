@@ -37,13 +37,11 @@ function LoginForm() {
   }
 
   return (
-    <div className="w-full max-w-sm">
-      <AppHeader />
-
-      <div className="mt-6 rounded-2xl border border-border bg-card p-6 shadow-sm sm:p-8">
-        <h1 className="font-serif text-2xl font-semibold text-foreground">Sign in</h1>
-        <p className="mt-2 text-sm text-muted">
-          Save your stories and share them with other Writers.
+    <div className="w-full max-w-[520px]">
+      <div className="mt-10 md:mt-14">
+        <h1 className="font-heading text-[38px] font-normal leading-[1.1] text-foreground">Sign in</h1>
+        <p className="mt-3 text-[13.5px] leading-[1.7] text-muted">
+          Keep your stories, and share the ones worth reading.
         </p>
 
         <button
@@ -53,20 +51,20 @@ function LoginForm() {
               callbackUrl: safeCallbackUrl(rawCallbackUrl, window.location.origin),
             })
           }
-          className="mt-6 w-full rounded-xl border border-border px-4 py-2.5 text-sm font-medium text-foreground transition-colors hover:border-accent"
+          className="btn btn-secondary btn-block mt-7 py-3 font-body text-[13px] font-normal"
         >
           Continue with Google
         </button>
 
-        <div className="my-5 flex items-center gap-3 text-xs text-muted">
+        <div className="my-6 flex items-center gap-[14px] text-[11.5px] italic text-muted">
           <div className="h-px flex-1 bg-border" />
           or
           <div className="h-px flex-1 bg-border" />
         </div>
 
-        <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+        <form onSubmit={handleSubmit} className="flex flex-col gap-6">
           <div>
-            <label className="mb-2 block text-sm text-muted" htmlFor="email">
+            <label className="field-label mb-2" htmlFor="email">
               Email
             </label>
             <input
@@ -75,11 +73,11 @@ function LoginForm() {
               required
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-accent/40"
+              className="field text-[15px]"
             />
           </div>
           <div>
-            <label className="mb-2 block text-sm text-muted" htmlFor="password">
+            <label className="field-label mb-2" htmlFor="password">
               Password
             </label>
             <input
@@ -88,26 +86,29 @@ function LoginForm() {
               required
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-accent/40"
+              className="field text-[15px] tracking-[0.18em]"
             />
           </div>
 
-          {error && <p className="text-sm text-red-600">{error}</p>}
+          {error && <p className="text-[13px] text-foreground">{error}</p>}
 
-          <button
-            type="submit"
-            disabled={isSubmitting}
-            className="mt-1 w-full rounded-xl bg-accent px-5 py-2.5 text-sm font-medium text-accent-foreground transition-opacity hover:opacity-90 disabled:opacity-40"
-          >
+          <button type="submit" disabled={isSubmitting} className="btn btn-primary btn-block py-[13px]">
             {isSubmitting ? "Signing in…" : "Sign in"}
           </button>
         </form>
 
-        <p className="mt-5 text-center text-xs text-muted">
+        <p className="mt-6 text-center text-[12.5px] text-muted">
           New here?{" "}
-          <Link href="/signup" className="tap-target inline-block font-medium text-accent">
+          <Link
+            href="/signup"
+            className="tap-target inline-block text-accent-text underline decoration-accent/50 underline-offset-2"
+          >
             Create an account
           </Link>
+        </p>
+
+        <p className="mt-8 border-t border-border pt-6 text-center text-[12px] italic leading-[1.7] text-muted">
+          You never needed an account to write. This only saves what you wrote.
         </p>
       </div>
     </div>
@@ -116,10 +117,13 @@ function LoginForm() {
 
 export default function Login() {
   return (
-    <div className="flex flex-1 flex-col items-center bg-background px-4 py-6 sm:py-10">
-      <Suspense>
-        <LoginForm />
-      </Suspense>
+    <div className="flex flex-1 flex-col bg-background">
+      <AppHeader />
+      <div className="flex w-full flex-col items-center px-4 pb-12 sm:px-6">
+        <Suspense>
+          <LoginForm />
+        </Suspense>
+      </div>
     </div>
   );
 }
