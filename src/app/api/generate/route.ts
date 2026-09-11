@@ -4,6 +4,7 @@ import { auth } from "@/auth";
 import { getDb, hasDatabase } from "@/lib/db/client";
 import { stories } from "@/lib/db/schema";
 import { insertAIParagraph, syncStoryParagraphs } from "@/lib/db/paragraphs";
+import { hashStoryParagraphs } from "@/lib/story/contentHash";
 import { insertGenerationEvent } from "@/lib/db/generationEvents";
 import { guardGenerate } from "@/lib/ratelimit/guard";
 import { clientIp } from "@/lib/ratelimit/policy";
@@ -155,12 +156,28 @@ export async function POST(request: Request) {
       return withRequestId(Response.json({ error: "Not authenticated" }, { status: 401 }), requestId);
     }
     const db = getDb();
-    const [story] = await db.select().from(stories).where(eq(stories.id, input.storyId));
+    // Explicit columns, not SELECT * — this route never needs openingLines or
+    // the invented jsonb blob just to check ownership (docs/adr/0041).
+    // paragraphCount/contentHash are the denormalized values the hash-based
+    // fast path in syncStoryParagraphs compares against, fetched here rather
+    // than with a second round trip.
+    const [story] = await db
+      .select({
+        id: stories.id,
+        ownerId: stories.ownerId,
+        paragraphCount: stories.paragraphCount,
+        contentHash: stories.contentHash,
+      })
+      .from(stories)
+      .where(eq(stories.id, input.storyId));
     if (!story || story.ownerId !== session.user.id) {
       return withRequestId(Response.json({ error: "Story not found" }, { status: 404 }), requestId);
     }
 
-    const sync = await syncStoryParagraphs(db, story.id, input.storySoFar);
+    const sync = await syncStoryParagraphs(db, story.id, input.storySoFar, {
+      paragraphCount: story.paragraphCount,
+      contentHash: story.contentHash,
+    });
     if (!sync.ok) {
       return withRequestId(
         Response.json({ error: "Story content has diverged from server state" }, { status: 409 }),
@@ -256,6 +273,12 @@ export async function POST(request: Request) {
         ? {
             "gen_ai.usage.input_tokens": args.result.usage.inputTokens,
             "gen_ai.usage.output_tokens": args.result.usage.outputTokens,
+            ...(args.result.usage.cacheReadInputTokens !== undefined
+              ? { "gen_ai.usage.cache_read_input_tokens": args.result.usage.cacheReadInputTokens }
+              : {}),
+            ...(args.result.usage.cacheCreationInputTokens !== undefined
+              ? { "gen_ai.usage.cache_creation_input_tokens": args.result.usage.cacheCreationInputTokens }
+              : {}),
           }
         : {}),
     });
@@ -292,7 +315,16 @@ export async function POST(request: Request) {
       ...(args.ttftMs !== undefined ? { ttftMs: args.ttftMs } : {}),
       ...(args.result?.model ? { model: args.result.model } : {}),
       ...(args.result?.usage
-        ? { inputTokens: args.result.usage.inputTokens, outputTokens: args.result.usage.outputTokens }
+        ? {
+            inputTokens: args.result.usage.inputTokens,
+            outputTokens: args.result.usage.outputTokens,
+            ...(args.result.usage.cacheReadInputTokens !== undefined
+              ? { cacheReadInputTokens: args.result.usage.cacheReadInputTokens }
+              : {}),
+            ...(args.result.usage.cacheCreationInputTokens !== undefined
+              ? { cacheCreationInputTokens: args.result.usage.cacheCreationInputTokens }
+              : {}),
+          }
         : {}),
       ...(costUsd !== undefined ? { costUsd } : {}),
       ...(args.err !== undefined ? { err: args.err } : {}),
@@ -317,6 +349,8 @@ export async function POST(request: Request) {
         storyId: persistedStoryId,
         inputTokens: args.result?.usage?.inputTokens,
         outputTokens: args.result?.usage?.outputTokens,
+        cacheReadInputTokens: args.result?.usage?.cacheReadInputTokens,
+        cacheCreationInputTokens: args.result?.usage?.cacheCreationInputTokens,
         costUsd,
         ttftMs: args.ttftMs,
         totalMs: args.totalMs,
@@ -483,11 +517,21 @@ export async function POST(request: Request) {
     if (!persistedStoryId) return "not-applicable";
     try {
       const db = getDb();
+      // input.storySoFar is exactly what's already stored through aiPosition-1
+      // (syncStoryParagraphs above proved that) — the resulting content once
+      // this AI paragraph lands is that plus this one paragraph, so its hash
+      // is computed the same way as any other successful append (docs/adr/0041).
+      const newContentHash = await hashStoryParagraphs([
+        ...input.storySoFar,
+        { author: "ai" as const, text: aiText, providerId: input.providerId },
+      ]);
       const wrote = await insertAIParagraph(db, {
         storyId: persistedStoryId,
         text: aiText,
         providerId: input.providerId,
         position: aiPosition,
+        newParagraphCount: aiPosition + 1,
+        newContentHash,
         invented: metadata,
       });
       if (!wrote) {

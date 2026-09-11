@@ -7,6 +7,8 @@ import type { AppDatabase } from "./types";
 import { createStory, createUser, readParagraphs, seedParagraphs } from "@/test/factories";
 import { createBarrier, createGate } from "@/test/latch";
 import type { StoryParagraph } from "@/lib/providers/types";
+import { hashStoryParagraphs } from "@/lib/story/contentHash";
+import { createRoundtripCounter } from "../../../bench/roundtrips";
 
 /**
  * The paragraph-position work against a real Postgres.
@@ -175,6 +177,8 @@ describe("insertAIParagraph", () => {
       text: "the AI's reply",
       providerId: "anthropic",
       position: 1,
+      newParagraphCount: 2,
+      newContentHash: "test-hash",
     });
 
     expect(wrote).toBe(true);
@@ -190,6 +194,8 @@ describe("insertAIParagraph", () => {
       text: "It rained.",
       providerId: "anthropic",
       position: 0,
+      newParagraphCount: 1,
+      newContentHash: "test-hash",
       invented: { theme: "noir", characters: "a detective" },
     });
 
@@ -209,6 +215,8 @@ describe("insertAIParagraph", () => {
       text: "x",
       providerId: "anthropic",
       position: 0,
+      newParagraphCount: 1,
+      newContentHash: "test-hash",
     });
 
     const [updated] = await getDb().select().from(stories).where(eq(stories.id, story.id));
@@ -224,6 +232,8 @@ describe("insertAIParagraph", () => {
       text: "superseded",
       providerId: "anthropic",
       position: 1,
+      newParagraphCount: 2,
+      newContentHash: "test-hash",
     });
 
     // A superseded generation is an outcome, not an error: the prose has already
@@ -242,6 +252,8 @@ describe("insertAIParagraph", () => {
       providerId: "anthropic",
       position: 0,
       invented: { theme: "should not be recorded" },
+      newParagraphCount: 1,
+      newContentHash: "test-hash",
     });
 
     const [updated] = await getDb().select().from(stories).where(eq(stories.id, story.id));
@@ -264,6 +276,8 @@ describe("concurrent turns on one story", () => {
         text,
         providerId: "anthropic",
         position: 1,
+        newParagraphCount: 2,
+        newContentHash: "test-hash",
       });
 
     const [first, second] = await Promise.all([write("from tab A"), write("from tab B")]);
@@ -331,6 +345,8 @@ describe("concurrent turns on one story", () => {
         text: `candidate ${i}`,
         providerId: "anthropic",
         position: 1,
+        newParagraphCount: 2,
+        newContentHash: "test-hash",
       })
     );
 
@@ -339,5 +355,170 @@ describe("concurrent turns on one story", () => {
     expect(results.filter(Boolean)).toHaveLength(1);
     const positions = (await readParagraphs(story.id)).map((r) => r.position);
     expect(positions).toEqual([0, 1]);
+  });
+
+  it("keeps paragraphCount and contentHash correct after a concurrent append race", async () => {
+    // Same race as "recovers by re-reading when its append loses the race"
+    // above, but asserting the denormalized columns too (docs/adr/0041): the
+    // winner's write must be what the story ends up with, not some mix of the
+    // two attempts or a value left over from the loser's failed try.
+    const story = await newStory();
+    await seedParagraphs(story.id, [writer("one"), ai("two")]);
+
+    const gate = createGate();
+    let held = false;
+    const slow = dbPausedBeforeWrite(async () => {
+      if (held) return;
+      held = true;
+      await gate.wait();
+    });
+
+    const loser = syncStoryParagraphs(slow, story.id, [writer("one"), ai("two"), writer("from the slow tab")]);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    const finalContent = [writer("one"), ai("two"), writer("from the fast tab")];
+    const winner = await syncStoryParagraphs(getDb(), story.id, finalContent);
+    gate.open();
+    await loser;
+
+    expect(winner).toMatchObject({ ok: true, nextPosition: 3 });
+    const [updated] = await getDb().select().from(stories).where(eq(stories.id, story.id));
+    expect(updated.paragraphCount).toBe(3);
+    expect(updated.contentHash).toBe(await hashStoryParagraphs(finalContent));
+  });
+});
+
+describe("syncStoryParagraphs — hash-based fast path", () => {
+  it("skips the paragraph read entirely when the client's hash matches the known state", async () => {
+    const story = await newStory();
+    const stored = [writer("one"), ai("two")];
+    await seedParagraphs(story.id, stored);
+    const known = { paragraphCount: stored.length, contentHash: await hashStoryParagraphs(stored) };
+
+    const counter = createRoundtripCounter();
+    const wrapped = counter.wrap(getDb());
+
+    const result = await syncStoryParagraphs(wrapped, story.id, [...stored, writer("three")], known);
+
+    expect(result).toEqual({ ok: true, storedBefore: 2, appended: 1, nextPosition: 3 });
+    // The whole point: no read of story_paragraph happened at all.
+    expect(counter.counts.select).toBe(0);
+    expect(counter.counts.execute).toBe(1);
+
+    const rows = await readParagraphs(story.id);
+    expect(rows.map((r) => r.text)).toEqual(["one", "two", "three"]);
+    const [updatedStory] = await getDb().select().from(stories).where(eq(stories.id, story.id));
+    expect(updatedStory.paragraphCount).toBe(3);
+    expect(updatedStory.contentHash).toBe(await hashStoryParagraphs([...stored, writer("three")]));
+  });
+
+  it("takes the fast path with nothing to append and no note of it in the count", async () => {
+    // The client resends exactly what's stored (an auto-retry) — no read, no
+    // write, just confirmation.
+    const story = await newStory();
+    const stored = [writer("one"), ai("two"), writer("three")];
+    await seedParagraphs(story.id, stored);
+    const known = { paragraphCount: stored.length, contentHash: await hashStoryParagraphs(stored) };
+
+    const counter = createRoundtripCounter();
+    const wrapped = counter.wrap(getDb());
+
+    const result = await syncStoryParagraphs(wrapped, story.id, stored, known);
+
+    expect(result).toEqual({ ok: true, storedBefore: 3, appended: 0, nextPosition: 3 });
+    expect(counter.total()).toBe(0);
+  });
+
+  it("falls back to the full read on a hash mismatch, and still produces a correct 409", async () => {
+    // A wrong/stale denormalized value (e.g. a pre-backfill NULL treated as a
+    // literal mismatch, or genuine drift) must never turn into a false
+    // success — the row-by-row check below is what actually decides this.
+    const story = await newStory();
+    await seedParagraphs(story.id, [writer("what the server has")]);
+    const known = { paragraphCount: 1, contentHash: "deliberately-wrong-hash" };
+
+    const result = await syncStoryParagraphs(
+      getDb(),
+      story.id,
+      [writer("what the client claims"), ai("and its continuation")],
+      known
+    );
+
+    expect(result).toEqual({ ok: false, reason: "diverged" });
+    expect(await readParagraphs(story.id)).toHaveLength(1);
+  });
+
+  it("falls back to the full read (and still succeeds) when the hash mismatch was just stale, not a real divergence", async () => {
+    // A `known` snapshot read moments before a concurrent append landed:
+    // stale, but the client's array still genuinely extends what's stored.
+    const story = await newStory();
+    const stored = [writer("one"), ai("two")];
+    await seedParagraphs(story.id, stored);
+    const staleKnown = { paragraphCount: 1, contentHash: "not-what-is-actually-there" };
+
+    const result = await syncStoryParagraphs(getDb(), story.id, [...stored, writer("three")], staleKnown);
+
+    expect(result).toEqual({ ok: true, storedBefore: 2, appended: 1, nextPosition: 3 });
+    expect((await readParagraphs(story.id)).map((r) => r.text)).toEqual(["one", "two", "three"]);
+  });
+
+  it("treats a client array shorter than the known count as diverged without reading", async () => {
+    const story = await newStory();
+    const stored = [writer("one"), ai("two"), writer("three")];
+    await seedParagraphs(story.id, stored);
+    const known = { paragraphCount: stored.length, contentHash: await hashStoryParagraphs(stored) };
+
+    const counter = createRoundtripCounter();
+    const wrapped = counter.wrap(getDb());
+
+    const result = await syncStoryParagraphs(wrapped, story.id, [writer("one")], known);
+
+    expect(result).toEqual({ ok: false, reason: "diverged" });
+    expect(counter.total()).toBe(0);
+  });
+
+  it("ignores the fast path entirely when contentHash is null (never backfilled/written)", async () => {
+    const story = await newStory(); // paragraphCount 0, contentHash null by default
+    const known = { paragraphCount: 0, contentHash: null };
+
+    const result = await syncStoryParagraphs(getDb(), story.id, [writer("one")], known);
+
+    expect(result).toEqual({ ok: true, storedBefore: 0, appended: 1, nextPosition: 1 });
+  });
+
+  it("refuses on the fast path to stack a second AI turn on a mirror already ending in one", async () => {
+    const story = await newStory();
+    const stored = [writer("one"), ai("two")];
+    await seedParagraphs(story.id, stored);
+    const known = { paragraphCount: stored.length, contentHash: await hashStoryParagraphs(stored) };
+
+    // Nothing to append (client re-sends exactly what's known), and the known
+    // prefix's own last entry is an AI turn — the fast path's own defense in
+    // depth, mirroring the slow path's identical check.
+    const result = await syncStoryParagraphs(getDb(), story.id, stored, known);
+
+    expect(result).toEqual({ ok: false, reason: "diverged" });
+  });
+
+  it("falls back to the slow path when the fast path's own append loses a race", async () => {
+    const story = await newStory();
+    const stored = [writer("one"), ai("two")];
+    await seedParagraphs(story.id, stored);
+    const known = { paragraphCount: stored.length, contentHash: await hashStoryParagraphs(stored) };
+
+    // A concurrent write already took position 2 by the time the fast path's
+    // own insert runs — it must fall back to a fresh read rather than
+    // reporting a false failure or throwing.
+    await getDb()
+      .insert(storyParagraphs)
+      .values({ storyId: story.id, authorType: "ai", text: "concurrent winner", position: 2 });
+
+    const result = await syncStoryParagraphs(getDb(), story.id, [...stored, writer("from the fast path")], known);
+
+    // The client's array (a Writer paragraph after "two") contradicts what's
+    // now actually stored at position 2 (an AI paragraph) — the slow path's
+    // fresh read correctly detects genuine divergence rather than retrying
+    // blindly.
+    expect(result).toEqual({ ok: false, reason: "diverged" });
   });
 });

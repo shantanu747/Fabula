@@ -10,6 +10,8 @@ export interface GenerationEventInput {
   storyId?: string;
   inputTokens?: number;
   outputTokens?: number;
+  cacheReadInputTokens?: number;
+  cacheCreationInputTokens?: number;
   costUsd?: number;
   ttftMs?: number;
   totalMs?: number;

@@ -90,22 +90,35 @@ export const stories = pgTable("story", {
   selectedProviderId: text("selectedProviderId").notNull(),
   invented: jsonb("invented").$type<{ theme?: string; characters?: string }>(),
   isShared: boolean("isShared").notNull().default(false),
+  // Denormalized mirrors of story_paragraph, maintained in the same statements
+  // that write paragraphs (docs/adr/0041). Let the sync-prefix check in
+  // src/lib/db/paragraphs.ts skip reading every paragraph row on the common
+  // case, and let the feed/library queries drop their count-by-groupBy join.
+  // contentHash is nullable because rows written before this migration have
+  // none until their next write; paragraphCount defaults to 0 for the same
+  // pre-existing rows (all of which have zero paragraphs backfilled anyway).
+  paragraphCount: integer("paragraphCount").notNull().default(0),
+  contentHash: text("contentHash"),
   createdAt: timestamp("createdAt", { mode: "date" }).notNull().defaultNow(),
   updatedAt: timestamp("updatedAt", { mode: "date" }).notNull().defaultNow(),
 }, (t) => [
-  // Written as raw SQL rather than t.updatedAt.desc(), which emits
-  // "DESC NULLS LAST". A plain ORDER BY ... DESC means NULLS FIRST, so the two
-  // orderings do not match and Postgres cannot take the sort from the index: the
-  // library query bitmap-scans every one of a Writer's stories and sorts them,
-  // instead of reading twenty rows off the index and stopping. The column is NOT
-  // NULL, so this changes nothing semantically — only whether the index is
-  // usable for ordering. Verified in src/lib/db/queries.perf.test.ts.
-  index("story_ownerId_updatedAt_index").on(t.ownerId, sql`"updatedAt" DESC`),
+  // Widened from (ownerId, updatedAt DESC) to add "id" as a tiebreaker
+  // (docs/adr/0041): keyset pagination's WHERE (updatedAt, id) < (cursor)
+  // needs a second, unique column in the ORDER BY / index whenever two
+  // stories share the same updatedAt, or a page boundary can skip or repeat a
+  // row. Still written as raw SQL, not t.updatedAt.desc()/t.id.desc(), for the
+  // same "DESC NULLS LAST" vs. plain "DESC" (NULLS FIRST) mismatch ADR 0017
+  // found — both columns are NOT NULL, so this changes nothing semantically,
+  // only whether the index can supply the sort. Verified in queries.perf.test.ts.
+  index("story_ownerId_updatedAt_id_index").on(t.ownerId, sql`"updatedAt" DESC`, sql`"id" DESC`),
   // The predicate must be `sql`, not the bare column — drizzle-kit calls .toQuery()
   // on whatever it's given while serializing the snapshot, so passing t.isShared
   // makes `drizzle-kit generate` throw before writing anything. Written unqualified
-  // because Postgres rejects table-qualified names in an index predicate.
-  index("stories_updated_at_is_shared_idx").on(t.updatedAt).where(sql`"isShared" = true`)
+  // because Postgres rejects table-qualified names in an index predicate. Same
+  // "id" tiebreaker addition as above, for the feed's keyset pagination.
+  index("stories_updated_at_id_is_shared_idx")
+    .on(sql`"updatedAt" DESC`, sql`"id" DESC`)
+    .where(sql`"isShared" = true`)
 ]);
 
 export const storyParagraphs = pgTable("story_paragraph", {
@@ -189,6 +202,11 @@ export const generationEvents = pgTable(
     storyId: text("storyId").references(() => stories.id, { onDelete: "set null" }),
     inputTokens: integer("inputTokens"),
     outputTokens: integer("outputTokens"),
+    // Prompt-cache observability (docs/adr/0040). Nullable like every other
+    // usage field here: absent means the provider/model didn't report it,
+    // never fabricated as 0 (docs/adr/0022).
+    cacheReadInputTokens: integer("cacheReadInputTokens"),
+    cacheCreationInputTokens: integer("cacheCreationInputTokens"),
     costUsd: doublePrecision("costUsd"),
     ttftMs: integer("ttftMs"),
     totalMs: integer("totalMs"),
@@ -209,5 +227,12 @@ export const generationEvents = pgTable(
     index("generation_event_userId_createdAt_index").on(t.userId, sql`"createdAt" DESC`),
     // Kept for the global (no userId filter) reconciliation query.
     index().on(t.createdAt),
+    // storyId is a foreign key Postgres never indexes automatically
+    // (docs/adr/0017's finding, recurring here) — read whenever a story's own
+    // generation history is looked up. Unlike story_report's reporterId index,
+    // this one is genuinely missing: story_report's existing
+    // unique(storyId, reporterId) already covers storyId as its leading
+    // column, so it needs no separate index (docs/adr/0041).
+    index().on(t.storyId),
   ]
 );
