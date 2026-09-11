@@ -1,7 +1,8 @@
-import { count, desc, eq } from "drizzle-orm";
 import { auth } from "@/auth";
 import { getDb } from "@/lib/db/client";
-import { stories, storyParagraphs } from "@/lib/db/schema";
+import { stories } from "@/lib/db/schema";
+import { decodeCursor, getLibraryPage } from "@/lib/db/feedAndLibrary";
+import { PRIVATE_NO_STORE } from "@/lib/http/cacheControl";
 import { areValidHints, isValidTargetLength } from "@/lib/story/validation";
 import { guardStoriesRead, guardStoriesWrite } from "@/lib/ratelimit/guard";
 
@@ -54,7 +55,7 @@ export async function POST(request: Request) {
   return Response.json({ id: story.id }, { status: 201 });
 }
 
-export async function GET() {
+export async function GET(request: Request) {
   const session = await auth();
   if (!session?.user?.id) {
     return Response.json({ error: "Not authenticated" }, { status: 401 });
@@ -62,22 +63,13 @@ export async function GET() {
   const limited = await guardStoriesRead(session.user.id);
   if (limited) return limited;
 
-  const rows = await getDb()
-    .select({
-      id: stories.id,
-      theme: stories.theme,
-      characters: stories.characters,
-      targetLength: stories.targetLength,
-      isShared: stories.isShared,
-      createdAt: stories.createdAt,
-      updatedAt: stories.updatedAt,
-      paragraphCount: count(storyParagraphs.id),
-    })
-    .from(stories)
-    .leftJoin(storyParagraphs, eq(storyParagraphs.storyId, stories.id))
-    .where(eq(stories.ownerId, session.user.id))
-    .groupBy(stories.id)
-    .orderBy(desc(stories.updatedAt));
+  const url = new URL(request.url);
+  const rawCursor = url.searchParams.get("cursor");
+  const cursor = rawCursor === null ? undefined : decodeCursor(rawCursor);
+  if (rawCursor !== null && cursor === undefined) {
+    return Response.json({ error: "Invalid cursor" }, { status: 400 });
+  }
 
-  return Response.json({ stories: rows });
+  const { rows, nextCursor } = await getLibraryPage(getDb(), session.user.id, cursor);
+  return Response.json({ stories: rows, nextCursor }, { headers: { "Cache-Control": PRIVATE_NO_STORE } });
 }

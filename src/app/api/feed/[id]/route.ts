@@ -2,6 +2,7 @@ import { asc, eq } from "drizzle-orm";
 import { auth } from "@/auth";
 import { getDb } from "@/lib/db/client";
 import { stories, storyParagraphs, users } from "@/lib/db/schema";
+import { PRIVATE_NO_STORE } from "@/lib/http/cacheControl";
 import { guardFeedRead } from "@/lib/ratelimit/guard";
 
 export async function GET(_request: Request, { params }: RouteContext<"/api/feed/[id]">) {
@@ -41,12 +42,15 @@ export async function GET(_request: Request, { params }: RouteContext<"/api/feed
     .where(eq(storyParagraphs.storyId, id))
     .orderBy(asc(storyParagraphs.position));
 
-  return Response.json({
-    id: row.id,
-    theme: row.theme,
-    characters: row.characters,
-    authorName: row.authorName,
-    updatedAt: row.updatedAt,
-    paragraphs,
-  });
+  return Response.json(
+    {
+      id: row.id,
+      theme: row.theme,
+      characters: row.characters,
+      authorName: row.authorName,
+      updatedAt: row.updatedAt,
+      paragraphs,
+    },
+    { headers: { "Cache-Control": PRIVATE_NO_STORE } }
+  );
 }

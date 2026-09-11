@@ -20,29 +20,35 @@ export default async function SharedStory({ params }: PageProps<"/feed/[id]">) {
   const { id } = await params;
 
   const db = getDb();
-  const [row] = await db
-    .select({
-      id: stories.id,
-      theme: stories.theme,
-      characters: stories.characters,
-      isShared: stories.isShared,
-      selectedProviderId: stories.selectedProviderId,
-      authorName: users.name,
-    })
-    .from(stories)
-    .innerJoin(users, eq(users.id, stories.ownerId))
-    .where(eq(stories.id, id));
+  // Both queries key only on `id`, which is known before either runs — no
+  // reason to wait for the story row before starting the paragraph read
+  // (docs/adr/0041). The paragraph read is thrown away below on a private/
+  // missing story; that's a wasted query on the 404 path, not a leak — its
+  // result is never rendered.
+  const [[row], paragraphs] = await Promise.all([
+    db
+      .select({
+        id: stories.id,
+        theme: stories.theme,
+        characters: stories.characters,
+        isShared: stories.isShared,
+        selectedProviderId: stories.selectedProviderId,
+        authorName: users.name,
+      })
+      .from(stories)
+      .innerJoin(users, eq(users.id, stories.ownerId))
+      .where(eq(stories.id, id)),
+    db
+      .select({
+        author: storyParagraphs.authorType,
+        text: storyParagraphs.text,
+      })
+      .from(storyParagraphs)
+      .where(eq(storyParagraphs.storyId, id))
+      .orderBy(asc(storyParagraphs.position)),
+  ]);
 
   if (!row || !row.isShared) notFound();
-
-  const paragraphs = await db
-    .select({
-      author: storyParagraphs.authorType,
-      text: storyParagraphs.text,
-    })
-    .from(storyParagraphs)
-    .where(eq(storyParagraphs.storyId, id))
-    .orderBy(asc(storyParagraphs.position));
 
   // Stories have no title field; the theme stands in, then the characters
   // (docs/adr/0033). Both are set in the same 42px Cormorant either way.

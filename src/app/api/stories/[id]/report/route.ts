@@ -14,7 +14,8 @@ export async function POST(_request: Request, { params }: RouteContext<"/api/sto
   const { id } = await params;
 
   const db = getDb();
-  const [story] = await db.select().from(stories).where(eq(stories.id, id));
+  // Only the shared-status check reads this row — explicit columns, not SELECT *.
+  const [story] = await db.select({ isShared: stories.isShared }).from(stories).where(eq(stories.id, id));
   if (!story || !story.isShared) {
     return Response.json({ error: "Story not found" }, { status: 404 });
   }

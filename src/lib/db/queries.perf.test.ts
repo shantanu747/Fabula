@@ -1,5 +1,7 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import { perfPool } from "@/test/setup-perf";
+import { getDb } from "@/lib/db/client";
+import { buildFeedQuery, buildLibraryQuery } from "@/lib/db/feedAndLibrary";
 
 /**
  * Proves the indexes in migration 0001 are the ones the planner actually picks.
@@ -40,6 +42,18 @@ async function explain(sql: string, params: unknown[] = []): Promise<PlanNode> {
     params
   );
   return rows[0]["QUERY PLAN"][0].Plan;
+}
+
+/**
+ * EXPLAINs the exact query the app runs, not a hand-written stand-in —
+ * `.toSQL()` compiles the same query builder `buildFeedQuery`/
+ * `buildLibraryQuery` (src/lib/db/feedAndLibrary.ts) hand to production code,
+ * so this test cannot drift from what actually ships the way the previous
+ * version of this file did (docs/adr/0041).
+ */
+async function explainQuery(builder: { toSQL(): { sql: string; params: unknown[] } }): Promise<PlanNode> {
+  const { sql, params } = builder.toSQL();
+  return explain(sql, params);
 }
 
 function flatten(node: PlanNode): PlanNode[] {
@@ -152,9 +166,10 @@ describe("hot-path query plans", () => {
   });
 
   it("lists a Writer's library newest-first without a sort step", async () => {
-    // The composite index is (ownerId, updatedAt DESC): the equality predicate
-    // first, the ordering second. Reversed, the planner would still use it for
-    // the filter but would have to sort the result.
+    // The composite index is (ownerId, updatedAt DESC, id DESC): the equality
+    // predicate first, the ordering (plus keyset tiebreaker) second. Reversed,
+    // the planner would still use it for the filter but would have to sort
+    // the result.
     //
     // The absence of a Sort node is the whole point, and it is fragile in a way
     // that is invisible from the schema: while the index was declared
@@ -162,23 +177,39 @@ describe("hot-path query plans", () => {
     // a plain DESC (which means NULLS FIRST), the orderings did not match, the
     // index could not supply the sort, and the planner read every story the
     // Writer owned and sorted it — cost 128 against 5 for twenty rows.
-    const plan = await explain(
-      `SELECT * FROM "story" WHERE "ownerId" = $1 ORDER BY "updatedAt" DESC LIMIT 20`,
-      [PROLIFIC_OWNER]
+    const plan = await explainQuery(buildLibraryQuery(getDb(), PROLIFIC_OWNER));
+
+    expect(nodeTypes(plan)).not.toContain("Seq Scan");
+    expect(indexNames(plan)).toContain("story_ownerId_updatedAt_id_index");
+    expect(nodeTypes(plan)).not.toContain("Sort");
+  });
+
+  it("keeps reading the library off the index past the first page (keyset boundary)", async () => {
+    // The whole reason for keyset over offset: page 2 must be just as cheap
+    // as page 1, not a rescan of every row before it.
+    const plan = await explainQuery(
+      buildLibraryQuery(getDb(), PROLIFIC_OWNER, { updatedAt: new Date(), id: "story-1" })
     );
 
     expect(nodeTypes(plan)).not.toContain("Seq Scan");
-    expect(indexNames(plan)).toContain("story_ownerId_updatedAt_index");
+    expect(indexNames(plan)).toContain("story_ownerId_updatedAt_id_index");
     expect(nodeTypes(plan)).not.toContain("Sort");
   });
 
   it("reads the shared feed through the partial index", async () => {
-    const plan = await explain(
-      `SELECT * FROM "story" WHERE "isShared" = true ORDER BY "updatedAt" DESC LIMIT 20`
-    );
+    const plan = await explainQuery(buildFeedQuery(getDb()));
 
-    expect(indexNames(plan)).toContain("stories_updated_at_is_shared_idx");
+    expect(indexNames(plan)).toContain("stories_updated_at_id_is_shared_idx");
     expect(nodeTypes(plan)).not.toContain("Seq Scan");
+    expect(nodeTypes(plan)).not.toContain("Sort");
+  });
+
+  it("keeps reading the feed off the partial index past the first page (keyset boundary)", async () => {
+    const plan = await explainQuery(buildFeedQuery(getDb(), { updatedAt: new Date(), id: "story-1" }));
+
+    expect(indexNames(plan)).toContain("stories_updated_at_id_is_shared_idx");
+    expect(nodeTypes(plan)).not.toContain("Seq Scan");
+    expect(nodeTypes(plan)).not.toContain("Sort");
   });
 
   it("keeps the partial index small by excluding unshared stories", async () => {
@@ -186,8 +217,8 @@ describe("hot-path query plans", () => {
     // stays resident where a full index on updatedAt would not.
     const { rows } = await perfPool().query<{ partial: number; full: number }>(`
       SELECT
-        pg_relation_size('"stories_updated_at_is_shared_idx"') AS partial,
-        pg_relation_size('"story_ownerId_updatedAt_index"') AS full
+        pg_relation_size('"stories_updated_at_id_is_shared_idx"') AS partial,
+        pg_relation_size('"story_ownerId_updatedAt_id_index"') AS full
     `);
 
     expect(Number(rows[0].partial)).toBeLessThan(Number(rows[0].full));

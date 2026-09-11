@@ -54,10 +54,18 @@ export function hasDatabase(): boolean {
 
 /**
  * @auth/drizzle-adapter's SqlFlavorOptions requires a full PgDatabase, which
- * AppDatabase is not (it lacks `transaction`). Only src/auth.ts may use this.
+ * AppDatabase is not (it lacks `transaction`) — that's why this keeps its own
+ * return type distinct from getDb()'s, and why it can't just delegate to
+ * getDb() itself. It doesn't need its own separate *instance* though: the
+ * memo below (docs/adr/0041) means src/auth.ts's NextAuth factory reuses the
+ * same underlying Drizzle handle getDb() does, instead of constructing (and
+ * holding open) a second one for the lifetime of the process. Only src/auth.ts
+ * may use this.
  */
+let authAdapterDb: ReturnType<typeof createDb> | undefined;
 export function getAuthAdapterDb() {
-  return createDb();
+  if (!authAdapterDb) authAdapterDb = createDb();
+  return authAdapterDb;
 }
 
 /**
