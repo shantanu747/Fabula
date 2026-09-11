@@ -19,6 +19,8 @@
     "test:e2e": "playwright test --config e2e/playwright.config.ts",
     "test:e2e:ui": "playwright test --config e2e/playwright.config.ts --ui",
     "test:e2e:soak": "playwright test --config e2e/playwright.config.ts --repeat-each=10",
+    "test:e2e:visual": "E2E_VISUAL=1 playwright test --config e2e/playwright.config.ts",
+    "test:e2e:visual:update": "E2E_VISUAL=1 playwright test --config e2e/playwright.config.ts --update-snapshots",
     "test:scripts": "vitest run --config vitest.scripts.config.mts",
     "bundle-budget": "tsx scripts/bundle-budget.mts",
     "bench": "node --env-file-if-exists=.env.local ./node_modules/.bin/tsx bench/harness.ts",
