@@ -30,45 +30,51 @@ export default async function Library() {
     .orderBy(desc(stories.updatedAt));
 
   return (
-    <div className="flex flex-1 flex-col items-center bg-background px-4 py-6 sm:py-10">
-      <div className="w-full max-w-2xl">
-        <AppHeader />
+    <div className="flex flex-1 flex-col bg-background">
+      <AppHeader />
+      <div className="flex w-full flex-col items-center px-4 sm:px-6">
+        <div className="w-full max-w-2xl">
+          <header className="mt-10">
+            <h1 className="font-heading text-[32px] font-normal leading-[1.12] text-foreground">
+              My library
+            </h1>
+            <p className="mt-2 text-[13.5px] text-muted">Stories you&apos;ve started while signed in.</p>
+          </header>
 
-        <header className="mb-6 mt-4">
-          <h1 className="font-serif text-2xl font-semibold text-foreground">My library</h1>
-          <p className="mt-1 text-sm text-muted">Stories you&apos;ve started while signed in.</p>
-        </header>
-
-        {rows.length === 0 ? (
-          <div className="rounded-2xl border border-border bg-card p-6 text-center text-sm text-muted">
-            No saved stories yet.{" "}
-            <Link href="/" className="font-medium text-accent">
-              Start one
-            </Link>{" "}
-            to see it here.
-          </div>
-        ) : (
-          <ul className="flex flex-col gap-3">
-            {rows.map((story) => (
-              <li
-                key={story.id}
-                className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-border bg-card p-4 shadow-sm"
+          {rows.length === 0 ? (
+            <p className="mt-6 border-t border-border py-10 text-center text-[13.5px] italic text-muted">
+              No saved stories yet.{" "}
+              <Link
+                href="/"
+                className="not-italic text-accent-text underline decoration-accent/50 underline-offset-2"
               >
-                <Link href={`/story?storyId=${story.id}`} className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-medium text-foreground">
-                    {story.theme || story.characters || "Untitled story"}
-                  </p>
-                  <p className="mt-1 text-xs text-muted">
-                    {story.paragraphCount} paragraph{story.paragraphCount === 1 ? "" : "s"} · ~
-                    {story.targetLength} target · updated{" "}
-                    {new Date(story.updatedAt).toLocaleDateString()}
-                  </p>
-                </Link>
-                <ShareToggle storyId={story.id} initialShared={story.isShared} />
-              </li>
-            ))}
-          </ul>
-        )}
+                Start one
+              </Link>{" "}
+              to see it here.
+            </p>
+          ) : (
+            <ul className="mt-6 flex flex-col border-t border-border pb-12">
+              {rows.map((story) => (
+                <li
+                  key={story.id}
+                  className="flex flex-wrap items-center justify-between gap-3 border-b border-border py-4"
+                >
+                  <Link href={`/story?storyId=${story.id}`} className="group min-w-0 flex-1">
+                    <p className="truncate font-heading text-[21px] font-semibold leading-[1.2] text-foreground transition-colors group-hover:text-accent-text">
+                      {story.theme || story.characters || "Untitled story"}
+                    </p>
+                    <p className="mt-1 text-[12.5px] text-muted">
+                      {story.paragraphCount} paragraph{story.paragraphCount === 1 ? "" : "s"} · ~
+                      {story.targetLength} target · updated{" "}
+                      {new Date(story.updatedAt).toLocaleDateString()}
+                    </p>
+                  </Link>
+                  <ShareToggle storyId={story.id} initialShared={story.isShared} />
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
       </div>
     </div>
   );

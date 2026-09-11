@@ -16,7 +16,7 @@ test.describe("turn-taking policy", () => {
     await startStory(page);
     await waitForAiParagraph(page, 1);
 
-    const continueButton = page.getByRole("button", { name: "Continue the Story" });
+    const continueButton = page.getByRole("button", { name: "Add & continue" });
     await expect(continueButton).toBeDisabled();
 
     await page.getByLabel("Write the next paragraph").fill("   ");
@@ -58,7 +58,7 @@ test.describe("turn-taking policy", () => {
     );
 
     await page.getByLabel("Write the next paragraph").fill("She pushed it open anyway.");
-    await page.getByRole("button", { name: "Continue the Story" }).click();
+    await page.getByRole("button", { name: "Add & continue" }).click();
 
     const alert = errorAlert(page);
     await expect(alert).toContainText("It's the Writer's turn");

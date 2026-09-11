@@ -15,15 +15,16 @@ export default function Loading() {
         <p role="status" aria-busy="true" className="sr-only">
           Loading…
         </p>
-        <div aria-hidden="true" className="flex flex-col gap-4">
-          <div className="h-6 w-40 animate-pulse rounded-full bg-card" />
+        {/* Hairline rows, like the lists they stand in for — no filled cards. */}
+        <div aria-hidden="true" className="flex flex-col">
+          <div className="mb-6 h-6 w-40 animate-pulse rounded bg-border" />
           {[0, 1, 2].map((i) => (
-            <div key={i} className="rounded-2xl border border-border bg-card p-5">
-              <div className="mb-3 h-4 w-20 animate-pulse rounded-full bg-ai-soft" />
+            <div key={i} className="border-b border-border py-5">
+              <div className="mb-3 h-3 w-20 animate-pulse rounded bg-border" />
               <div className="space-y-2">
-                <div className="h-3 w-full animate-pulse rounded bg-ai-soft" />
-                <div className="h-3 w-11/12 animate-pulse rounded bg-ai-soft" />
-                <div className="h-3 w-4/5 animate-pulse rounded bg-ai-soft" />
+                <div className="h-3 w-full animate-pulse rounded bg-border" />
+                <div className="h-3 w-11/12 animate-pulse rounded bg-border" />
+                <div className="h-3 w-4/5 animate-pulse rounded bg-border" />
               </div>
             </div>
           ))}

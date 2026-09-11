@@ -97,7 +97,7 @@ test.describe("zero CSP violations, signed out", () => {
 
     await setMockScript(errorResponse(502));
     await page.getByLabel("Write the next paragraph").fill("A reply that will fail.");
-    await page.getByRole("button", { name: "Continue the Story" }).click();
+    await page.getByRole("button", { name: "Add & continue" }).click();
     await expect(errorAlert(page)).toBeVisible();
     await expectNoCspViolations(page, "/story (error state)");
 
