@@ -26,23 +26,19 @@ export default function Error({
   return (
     <div className="flex flex-1 flex-col items-center justify-center bg-background px-4 py-16">
       <div className="w-full max-w-md text-center">
-        <h1 className="font-serif text-xl font-semibold text-foreground">
+        <h1 className="font-heading text-[32px] font-normal leading-[1.12] text-foreground">
           Something went wrong
         </h1>
-        <p className="mt-3 text-sm text-muted">
+        <p className="mt-3 text-[14px] leading-[1.7] text-muted">
           The page didn&apos;t load. This is usually temporary — trying again often works.
         </p>
         {/* The only stable handle on a server-side error, since the message
             itself is withheld in production to avoid leaking internals. */}
         {error.digest && (
-          <p className="mt-2 font-mono text-xs text-muted">Reference: {error.digest}</p>
+          <p className="mt-2 text-[12px] tabular-nums text-muted">Reference: {error.digest}</p>
         )}
-        <div className="mt-6 flex flex-col items-stretch gap-3 sm:flex-row sm:justify-center">
-          <button
-            type="button"
-            onClick={() => retry()}
-            className="rounded-xl bg-accent px-5 py-2.5 text-sm font-medium text-accent-foreground transition-opacity hover:opacity-90"
-          >
+        <div className="mt-8 flex flex-col items-stretch gap-3 sm:flex-row sm:justify-center">
+          <button type="button" onClick={() => retry()} className="btn btn-primary btn-compact">
             Try again
           </button>
           {/*
@@ -53,10 +49,7 @@ export default function Error({
             guarantees a clean slate.
           */}
           {/* eslint-disable-next-line @next/next/no-html-link-for-pages */}
-          <a
-            href="/"
-            className="rounded-xl border border-border px-5 py-2.5 text-sm font-medium text-foreground transition-colors hover:border-accent hover:text-accent"
-          >
+          <a href="/" className="btn btn-secondary btn-compact">
             Start a new story
           </a>
         </div>

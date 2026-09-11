@@ -41,56 +41,56 @@ export default function Feed() {
   }, []);
 
   return (
-    <div className="flex flex-1 flex-col items-center bg-background px-4 py-6 sm:py-10">
-      <div className="w-full max-w-2xl">
-        <AppHeader />
+    <div className="flex flex-1 flex-col bg-background">
+      <AppHeader />
+      <div className="flex w-full flex-col items-center px-4 sm:px-6">
+        <div className="w-full max-w-2xl">
+          <header className="mt-10">
+            <h1 className="font-heading text-[32px] font-normal leading-[1.12] text-foreground">
+              Shared stories
+            </h1>
+            <p className="mt-2 text-[13.5px] text-muted">Stories other Writers have chosen to share.</p>
+          </header>
 
-        <header className="mb-6 mt-4">
-          <h1 className="font-serif text-2xl font-semibold text-foreground">Shared stories</h1>
-          <p className="mt-1 text-sm text-muted">Stories other Writers have chosen to share.</p>
-        </header>
+          <p className="mt-6 border-y border-border py-3 text-[12.5px] italic leading-[1.7] text-muted">
+            Shared stories include unmoderated human-written text. If you see something
+            that shouldn&apos;t be here, use the Report button on that story.
+          </p>
 
-        <div className="mb-6 rounded-2xl border border-border bg-ai-soft p-4 text-xs text-muted">
-          Shared stories include unmoderated human-written text. If you see something
-          that shouldn&apos;t be here, use the Report button on that story.
+          {stories.length === 0 && !isLoading ? (
+            <p className="py-10 text-center text-[13.5px] italic text-muted">No shared stories yet.</p>
+          ) : (
+            <ul className="flex flex-col">
+              {stories.map((story) => (
+                <li key={story.id} className="border-b border-border">
+                  <Link href={`/feed/${story.id}`} className="group block py-4">
+                    <p className="truncate font-heading text-[21px] font-semibold leading-[1.2] text-foreground transition-colors group-hover:text-accent-text">
+                      {story.theme || story.characters || "Untitled story"}
+                    </p>
+                    <p className="mt-1 text-[12.5px] text-muted">
+                      by {story.authorName ?? "a Writer"} · {story.paragraphCount} paragraph
+                      {story.paragraphCount === 1 ? "" : "s"} · updated{" "}
+                      {new Date(story.updatedAt).toLocaleDateString()}
+                    </p>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          )}
+
+          {nextOffset !== null && (
+            <div className="mt-8 pb-12">
+              <button
+                type="button"
+                onClick={loadMore}
+                disabled={isLoading}
+                className="btn btn-secondary btn-block"
+              >
+                {isLoading ? "Loading…" : "Load more"}
+              </button>
+            </div>
+          )}
         </div>
-
-        {stories.length === 0 && !isLoading ? (
-          <div className="rounded-2xl border border-border bg-card p-6 text-center text-sm text-muted">
-            No shared stories yet.
-          </div>
-        ) : (
-          <ul className="flex flex-col gap-3">
-            {stories.map((story) => (
-              <li key={story.id}>
-                <Link
-                  href={`/feed/${story.id}`}
-                  className="block rounded-2xl border border-border bg-card p-4 shadow-sm transition-colors hover:border-accent"
-                >
-                  <p className="truncate text-sm font-medium text-foreground">
-                    {story.theme || story.characters || "Untitled story"}
-                  </p>
-                  <p className="mt-1 text-xs text-muted">
-                    by {story.authorName ?? "a Writer"} · {story.paragraphCount} paragraph
-                    {story.paragraphCount === 1 ? "" : "s"} · updated{" "}
-                    {new Date(story.updatedAt).toLocaleDateString()}
-                  </p>
-                </Link>
-              </li>
-            ))}
-          </ul>
-        )}
-
-        {nextOffset !== null && (
-          <button
-            type="button"
-            onClick={loadMore}
-            disabled={isLoading}
-            className="mt-6 w-full rounded-xl border border-border px-4 py-2.5 text-sm font-medium text-foreground transition-colors hover:border-accent disabled:opacity-40"
-          >
-            {isLoading ? "Loading…" : "Load more"}
-          </button>
-        )}
       </div>
     </div>
   );
