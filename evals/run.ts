@@ -1,6 +1,6 @@
 import { startMockProvider } from "../test-support/mock-provider/server";
 import type { MockProvider } from "../test-support/mock-provider/types";
-import { writeFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { JUDGE_MODEL, RUBRIC_VERSION } from "./rubric";
 import type { Dimension } from "./rubric";
@@ -24,6 +24,7 @@ import {
   writeReports,
   type Baseline,
   type EvalEntry,
+  type Failure,
 } from "./report";
 
 /**
@@ -163,7 +164,43 @@ function requiredKeysFor(matrix: MatrixEntry[]): string[] {
   return keys;
 }
 
-async function runLive(matrix: MatrixEntry[], writeBaseline: boolean): Promise<{ entries: EvalEntry[]; failures: string[] }> {
+/**
+ * Score-based checks (pooled means, baseline drift) are single noisy
+ * LLM-judge samples compared against a tight bar — a lone 1-point dip is
+ * ordinary sampling noise, not a provider regression (see docs/adr/0028).
+ * A failure only fails the job once it repeats on a second consecutive
+ * night; `EVAL_PREVIOUS_REPORT` (set by the workflow from last run's
+ * uploaded artifact) is how tonight's run learns what failed last night.
+ * Structural/hard-floor/injection checks are never debounced.
+ */
+function failureKeyOf(entry: unknown): string | undefined {
+  if (typeof entry !== "object" || entry === null) return undefined;
+  const key = (entry as { key?: unknown }).key;
+  return typeof key === "string" ? key : undefined;
+}
+
+/** Exported for evals/run.test.ts; reads the path named by EVAL_PREVIOUS_REPORT. */
+export async function loadPreviousFailureKeys(path: string | undefined): Promise<Set<string>> {
+  if (!path) return new Set();
+  try {
+    const raw = JSON.parse(await readFile(path, "utf8")) as { failures?: unknown };
+    const failures = Array.isArray(raw.failures) ? raw.failures : [];
+    return new Set(failures.map(failureKeyOf).filter((key): key is string => key !== undefined));
+  } catch {
+    // Missing or unreadable previous report (first run ever, expired
+    // artifact, format bump) — treat every failure tonight as first
+    // occurrence rather than crashing the job over history we don't have.
+    return new Set();
+  }
+}
+
+export function applyDebounce(failures: Failure[], previousKeys: Set<string>): Failure[] {
+  return failures.map((f) =>
+    f.debounceEligible && !previousKeys.has(f.key) ? { ...f, status: "pending" as const } : f
+  );
+}
+
+async function runLive(matrix: MatrixEntry[], writeBaseline: boolean): Promise<{ entries: EvalEntry[]; failures: Failure[] }> {
   const missing = requiredKeysFor(matrix).filter((name) => !process.env[name]);
   if (missing.length > 0) {
     throw new Error(
@@ -193,7 +230,8 @@ async function runLive(matrix: MatrixEntry[], writeBaseline: boolean): Promise<{
     failures.push(...evaluateDrift(entries, baseline, thresholds.nightlyDriftTolerance));
   }
 
-  return { entries, failures };
+  const previousKeys = await loadPreviousFailureKeys(process.env.EVAL_PREVIOUS_REPORT);
+  return { entries, failures: applyDebounce(failures, previousKeys) };
 }
 
 function buildBaseline(entries: EvalEntry[]): Baseline {
@@ -217,7 +255,7 @@ async function main(): Promise<void> {
   const thresholds = await loadThresholds();
 
   let entries: EvalEntry[];
-  let failures: string[];
+  let failures: Failure[];
 
   if (args.live) {
     console.log(
@@ -234,10 +272,26 @@ async function main(): Promise<void> {
 
   await writeReports(entries, thresholds, failures);
 
-  if (failures.length > 0) {
-    console.error(`\neval FAILED with ${failures.length} failure(s):`);
-    for (const failure of failures) console.error(`  - ${failure}`);
+  const confirmed = failures.filter((f) => f.status === "confirmed");
+  const pending = failures.filter((f) => f.status === "pending");
+
+  if (confirmed.length > 0) {
+    console.error(`\neval FAILED with ${confirmed.length} failure(s):`);
+    for (const f of confirmed) console.error(`  - ${f.message}`);
+    if (pending.length > 0) {
+      console.error(
+        `\n${pending.length} more failure(s) seen for the first time tonight — not yet failing the job, ` +
+          `will fail tomorrow if they repeat:`
+      );
+      for (const f of pending) console.error(`  - ${f.message}`);
+    }
     process.exitCode = 1;
+  } else if (pending.length > 0) {
+    console.log(
+      `\neval passed (${entries.length} entries) — ${pending.length} pending failure(s) seen for the ` +
+        `first time, not yet confirmed (see evals/report.md)`
+    );
+    for (const f of pending) console.log(`  - ${f.message}`);
   } else {
     console.log(`\neval passed (${entries.length} entries; see evals/report.md)`);
   }

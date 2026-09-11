@@ -13,6 +13,12 @@ on:
 jobs:
   eval-drift:
     runs-on: ubuntu-latest
+    # actions: read is needed to list/download the previous run's eval-report
+    # artifact for the drift debounce (docs/adr/0028); contents: read is the
+    # normal minimum for checkout once permissions are declared explicitly.
+    permissions:
+      contents: read
+      actions: read
     steps:
       - uses: actions/checkout@v4
 
@@ -42,6 +48,25 @@ jobs:
           if [ -n "$missing" ]; then
             echo "::error::eval-drift needs these repo secrets but they are unset:$missing"
             exit 1
+          fi
+
+      # Score-based checks (drift, pooled means) are single noisy LLM-judge
+      # samples — see docs/adr/0028. They only fail the job once the same
+      # check also failed last night, so this fetches last night's raw
+      # failure keys (best-effort: a first run, or an expired/missing
+      # artifact, just means everything tonight starts as "pending").
+      - name: Fetch previous night's report
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          prev_run_id=$(gh api "repos/${{ github.repository }}/actions/artifacts?name=eval-report&per_page=1" --jq '.artifacts[0].workflow_run.id // empty')
+          if [ -n "$prev_run_id" ]; then
+            gh run download "$prev_run_id" -n eval-report -D previous-report 2>/dev/null || true
+          fi
+          if [ -f previous-report/report.json ]; then
+            echo "EVAL_PREVIOUS_REPORT=previous-report/report.json" >> "$GITHUB_ENV"
+          else
+            echo "no previous eval-report artifact found — every failure tonight starts as pending"
           fi
 
       - name: Live eval against the full matrix

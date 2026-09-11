@@ -35,6 +35,23 @@ export interface EvalEntry {
   injectionResisted?: boolean;
 }
 
+export interface Failure {
+  /** Stable identifier for this exact check (provider/case/dimension), with no
+   * scores embedded — used to match the same failure across nightly runs. */
+  key: string;
+  message: string;
+  /** Score-based checks (pooled means, baseline drift) are single noisy LLM-judge
+   * samples and are eligible for the nightly's two-consecutive-run confirmation
+   * (see docs/adr/0028). Structural/hard-floor/injection checks are the
+   * zero-tolerance gates ADR 0018 pins deliberately and are never debounced. */
+  debounceEligible: boolean;
+  status: "confirmed" | "pending";
+}
+
+function failure(key: string, message: string, debounceEligible: boolean): Failure {
+  return { key, message, debounceEligible, status: "confirmed" };
+}
+
 export interface Baseline {
   rubricVersion: string;
   judgeModel: string;
@@ -79,14 +96,16 @@ export function meanScores(entries: EvalEntry[]): Partial<Record<Dimension, numb
   return means;
 }
 
-/** Returns human-readable failure strings; an empty array means pass. */
-export function evaluateEntries(entries: EvalEntry[], thresholds: Thresholds): string[] {
-  const failures: string[] = [];
+/** Returns structured failures; an empty array means pass. */
+export function evaluateEntries(entries: EvalEntry[], thresholds: Thresholds): Failure[] {
+  const failures: Failure[] = [];
 
   // Zero entries is not a pass: it means the matrix or fixture loading is
   // misconfigured, and a green report at that point would be a lie.
   if (entries.length === 0) {
-    failures.push("no entries executed — the matrix or fixtures are misconfigured");
+    failures.push(
+      failure("no-entries", "no entries executed — the matrix or fixtures are misconfigured", false)
+    );
     return failures;
   }
 
@@ -96,7 +115,11 @@ export function evaluateEntries(entries: EvalEntry[], thresholds: Thresholds): s
   if (structuralPassRate < thresholds.structural.passRate) {
     for (const entry of structuralFailed) {
       failures.push(
-        `structural: ${entry.providerId}/${entry.caseId} — ${entry.structuralFailures.join("; ")}`
+        failure(
+          `structural:${entry.providerId}/${entry.caseId}`,
+          `structural: ${entry.providerId}/${entry.caseId} — ${entry.structuralFailures.join("; ")}`,
+          false
+        )
       );
     }
   }
@@ -106,7 +129,11 @@ export function evaluateEntries(entries: EvalEntry[], thresholds: Thresholds): s
       const score = entry.scores[dimension as Dimension];
       if (score !== undefined && score < floor) {
         failures.push(
-          `hard floor ${dimension}: ${entry.providerId}/${entry.caseId} scored ${score} (< ${floor})`
+          failure(
+            `hardfloor:${dimension}:${entry.providerId}/${entry.caseId}`,
+            `hard floor ${dimension}: ${entry.providerId}/${entry.caseId} scored ${score} (< ${floor})`,
+            false
+          )
         );
       }
     }
@@ -114,7 +141,13 @@ export function evaluateEntries(entries: EvalEntry[], thresholds: Thresholds): s
 
   for (const entry of entries) {
     if (entry.injectionResisted === false) {
-      failures.push(`injection_resisted: ${entry.providerId}/${entry.caseId} failed to resist embedded instructions`);
+      failures.push(
+        failure(
+          `injection:${entry.providerId}/${entry.caseId}`,
+          `injection_resisted: ${entry.providerId}/${entry.caseId} failed to resist embedded instructions`,
+          false
+        )
+      );
     }
   }
 
@@ -122,7 +155,7 @@ export function evaluateEntries(entries: EvalEntry[], thresholds: Thresholds): s
   for (const [dimension, threshold] of Object.entries(thresholds.means)) {
     const mean = means[dimension as Dimension];
     if (mean !== undefined && mean < threshold) {
-      failures.push(`mean ${dimension}: ${mean} < ${threshold}`);
+      failures.push(failure(`mean:${dimension}`, `mean ${dimension}: ${mean} < ${threshold}`, true));
     }
   }
 
@@ -130,20 +163,30 @@ export function evaluateEntries(entries: EvalEntry[], thresholds: Thresholds): s
 }
 
 /** Nightly drift: any scored dimension dropping more than `tolerance` below the committed baseline. */
-export function evaluateDrift(entries: EvalEntry[], baseline: Baseline, tolerance: number): string[] {
-  const failures: string[] = [];
+export function evaluateDrift(entries: EvalEntry[], baseline: Baseline, tolerance: number): Failure[] {
+  const failures: Failure[] = [];
   for (const entry of entries) {
     const key = baselineKey(entry.providerId, entry.caseId);
     const baselineScores = baseline.scores[key];
     if (!baselineScores) {
-      failures.push(`baseline missing for ${key} — seed it with npm run eval:live --write-baseline`);
+      failures.push(
+        failure(
+          `drift-missing:${key}`,
+          `baseline missing for ${key} — seed it with npm run eval:live --write-baseline`,
+          false
+        )
+      );
       continue;
     }
     for (const [dimension, liveScore] of Object.entries(entry.scores)) {
       const base = baselineScores[dimension as Dimension];
       if (base !== undefined && (liveScore as number) < base - tolerance) {
         failures.push(
-          `drift ${dimension}: ${key} live ${liveScore} vs baseline ${base} (tolerance ${tolerance})`
+          failure(
+            `drift:${dimension}:${key}`,
+            `drift ${dimension}: ${key} live ${liveScore} vs baseline ${base} (tolerance ${tolerance})`,
+            true
+          )
         );
       }
     }
@@ -169,9 +212,12 @@ function sortScores(scores: Partial<Record<Dimension, number>>): Partial<Record<
 export async function writeReports(
   entries: EvalEntry[],
   thresholds: Thresholds,
-  failures: string[]
+  failures: Failure[]
 ): Promise<void> {
   const sorted = sortEntries(entries);
+  const sortedFailures = [...failures]
+    .map(({ key, message, status }) => ({ key, message, status }))
+    .sort((a, b) => (a.key === b.key ? a.message.localeCompare(b.message) : a.key.localeCompare(b.key)));
   const report = {
     rubricVersion: RUBRIC_VERSION,
     entryCount: sorted.length,
@@ -185,8 +231,11 @@ export async function writeReports(
     })),
     means: meanScores(sorted),
     thresholds,
-    failures: [...failures].sort(),
-    passed: failures.length === 0,
+    // The full raw set, keys included: the nightly workflow feeds this file
+    // back in as next run's EVAL_PREVIOUS_REPORT so a "pending" failure that
+    // repeats becomes "confirmed" (see docs/adr/0028).
+    failures: sortedFailures,
+    passed: !failures.some((f) => f.status === "confirmed"),
   };
   await mkdir(evalsPath("."), { recursive: true });
   await writeFile(evalsPath("./report.json"), JSON.stringify(report, null, 2) + "\n", "utf8");
@@ -205,7 +254,7 @@ interface ReportShape {
     injectionResisted?: boolean;
   }>;
   means: Partial<Record<Dimension, number>>;
-  failures: string[];
+  failures: Array<{ key: string; message: string; status: "confirmed" | "pending" }>;
   passed: boolean;
 }
 
@@ -244,7 +293,10 @@ function renderMarkdown(report: ReportShape): string {
 
   if (report.failures.length > 0) {
     lines.push("", "## Failures", "");
-    for (const failure of report.failures) lines.push(`- ${failure}`);
+    for (const failure of report.failures) {
+      const tag = failure.status === "pending" ? " _(pending — first occurrence; fails the job if it repeats tomorrow)_" : "";
+      lines.push(`- ${failure.message}${tag}`);
+    }
   }
   lines.push("");
   return lines.join("\n");
