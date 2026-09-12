@@ -1,8 +1,6 @@
 import type { InventedMetadata, StoryParagraph } from "@/lib/providers/types";
 import type { GenerationErrorKind } from "./types";
-
-// Must match src/app/api/generate/route.ts's METADATA_SENTINEL exactly.
-const SENTINEL = "\n FABULA:METADATA ";
+import { SSEStreamParser, type DecodedFrame } from "@/lib/streaming/protocol";
 
 export interface GenerateRequestBody {
   providerId: string;
@@ -30,13 +28,122 @@ export interface StreamCallbacks {
   onError: (error: GenerationError) => void;
 }
 
-/** Longest suffix of `buf` that could still be an incomplete prefix of SENTINEL. */
-export function longestSentinelPrefixOverlap(buf: string): number {
-  const maxCheck = Math.min(SENTINEL.length - 1, buf.length);
-  for (let k = maxCheck; k > 0; k--) {
-    if (buf.endsWith(SENTINEL.slice(0, k))) return k;
+interface StreamState {
+  visibleText: string;
+  lastEventId: number;
+  metadata?: InventedMetadata;
+}
+
+type ConsumeResult =
+  | { outcome: "done" }
+  | { outcome: "error"; error: GenerationError }
+  /** The reader threw for a reason that isn't our own signal firing — a real
+   *  network/transport break. The caller decides what to do next (attempt
+   *  resume, or surface the existing generic error). */
+  | { outcome: "transport-failure" }
+  /** `signal` was the thing that fired — a genuine local abort (switching
+   *  providers, unmounting), not a failure of any kind. Nothing to report. */
+  | { outcome: "aborted" };
+
+/**
+ * Drives one framed response (the initial POST, or a resume GET) to a
+ * terminal frame, calling `onChunk` as prose arrives and mutating `state` in
+ * place so a subsequent resume attempt continues from exactly where this
+ * left off — same accumulated text, same last-seen event id.
+ */
+async function consumeFrames(
+  response: Response,
+  state: StreamState,
+  onChunk: (textSoFar: string) => void,
+  signal: AbortSignal
+): Promise<ConsumeResult> {
+  const reader = response.body!.getReader();
+  const decoder = new TextDecoder();
+  const parser = new SSEStreamParser();
+
+  function handle(frame: DecodedFrame): ConsumeResult | undefined {
+    if (frame.id !== undefined) state.lastEventId = Math.max(state.lastEventId, frame.id);
+    const event = frame.event;
+    switch (event.event) {
+      case "chunk":
+        state.visibleText += event.data.text;
+        onChunk(state.visibleText);
+        return undefined;
+      case "meta":
+        state.metadata = event.data.invented;
+        return undefined;
+      case "usage":
+        // Server-side cost accounting only (docs/adr/0022) — no current UI
+        // surface consumes token usage, so this is parsed and discarded.
+        return undefined;
+      case "error":
+        return {
+          outcome: "error",
+          error: {
+            kind: event.data.kind,
+            message: event.data.message,
+            suggestedProviderId: event.data.suggestedProviderId,
+            suggestedProviderName: event.data.suggestedProviderName,
+          },
+        };
+      case "done":
+        // `persisted`/`position`/`storyId` are parsed by the frame decoder
+        // but not surfaced here — Plan 5 is what consumes them; this plan
+        // only makes them expressible on the wire (docs/adr/0042).
+        return { outcome: "done" };
+    }
   }
-  return 0;
+
+  try {
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (value) {
+        for (const frame of parser.push(decoder.decode(value, { stream: true }))) {
+          const result = handle(frame);
+          if (result) return result;
+        }
+      }
+      if (done) break;
+    }
+    // The stream closed normally without ever reaching a done/error frame —
+    // not expected from a well-behaved server, but handled the same way a
+    // transport failure is rather than silently treating it as success.
+    return { outcome: "transport-failure" };
+  } catch {
+    // See the fetch() catch block below for the same distinction and why it
+    // matters: an AbortError here can mean *this call's own* controller fired
+    // (a genuine local abort) or a browser-cancelled fetch that never touched
+    // our signal at all (docs/adr/0026) — only the former is silent.
+    if (signal.aborted) return { outcome: "aborted" };
+    return { outcome: "transport-failure" };
+  }
+}
+
+/**
+ * Attempts to pick a dropped stream back up from `state.lastEventId`, once
+ * (docs/adr/0043). A 404 (buffer expired, never existed, or Redis wasn't
+ * configured in the first place) and a genuine transport failure on the
+ * resume call itself both fall through to `transport-failure` — from the
+ * caller's perspective, both just mean "resume didn't work."
+ */
+async function attemptResume(
+  requestId: string,
+  state: StreamState,
+  onChunk: (textSoFar: string) => void,
+  signal: AbortSignal
+): Promise<ConsumeResult> {
+  let response: Response;
+  try {
+    response = await fetch(`/api/generate/${requestId}/resume`, {
+      headers: { "Last-Event-ID": String(state.lastEventId) },
+      signal,
+    });
+  } catch {
+    if (signal.aborted) return { outcome: "aborted" };
+    return { outcome: "transport-failure" };
+  }
+  if (!response.ok) return { outcome: "transport-failure" };
+  return consumeFrames(response, state, onChunk, signal);
 }
 
 export async function streamGeneration(
@@ -100,78 +207,28 @@ export async function streamGeneration(
     return;
   }
 
-  const reader = response.body!.getReader();
-  const decoder = new TextDecoder();
-  let visibleText = "";
-  let pending = ""; // unflushed tail that might be a partial sentinel match
-  let sentinelFound = false;
-  let metadataJson = "";
+  const requestId = response.headers.get("x-request-id");
+  const state: StreamState = { visibleText: "", lastEventId: 0 };
 
-  try {
-    while (true) {
-      const { value, done } = await reader.read();
-      if (value) pending += decoder.decode(value, { stream: true });
+  let result = await consumeFrames(response, state, onChunk, signal);
 
-      if (!sentinelFound) {
-        const idx = pending.indexOf(SENTINEL);
-        if (idx !== -1) {
-          sentinelFound = true;
-          const prose = pending.slice(0, idx);
-          if (prose) {
-            visibleText += prose;
-            onChunk(visibleText);
-          }
-          metadataJson = pending.slice(idx + SENTINEL.length);
-          pending = "";
-        } else {
-          // Hold back only the suffix that could still be the start of the
-          // sentinel, so the raw "FABULA:METADATA" text can never flash on
-          // screen even if it arrives split across reads.
-          const overlap = longestSentinelPrefixOverlap(pending);
-          const safeLen = pending.length - overlap;
-          if (safeLen > 0) {
-            visibleText += pending.slice(0, safeLen);
-            pending = pending.slice(safeLen);
-            onChunk(visibleText);
-          }
-        }
-      } else {
-        metadataJson += pending;
-        pending = "";
-      }
+  if (result.outcome === "transport-failure" && requestId) {
+    result = await attemptResume(requestId, state, onChunk, signal);
+  }
 
-      if (done) break;
-    }
-  } catch {
-    // See the comment on the fetch() catch block above — same distinction applies
-    // to a mid-stream abort, and matters even more here: this is the shape a
-    // browser-cancelled /api/generate actually takes (headers already received,
-    // net::ERR_ABORTED during the body read), not the pre-response one.
-    if (signal.aborted) return;
-    onError({ kind: "stream-aborted", message: "Generation was interrupted before finishing." });
+  if (result.outcome === "aborted") return;
+  if (result.outcome === "done") {
+    onDone(state.visibleText, state.metadata);
+    return;
+  }
+  if (result.outcome === "error") {
+    onError(result.error);
     return;
   }
 
-  const flushed = decoder.decode();
-  if (flushed) {
-    if (sentinelFound) metadataJson += flushed;
-    else pending += flushed;
-  }
-  if (!sentinelFound && pending) {
-    visibleText += pending;
-    onChunk(visibleText);
-  }
-
-  let metadata: InventedMetadata | undefined;
-  if (sentinelFound && metadataJson.trim()) {
-    try {
-      metadata = JSON.parse(metadataJson);
-    } catch (e) {
-      console.error("[streamGeneration] failed to parse invented-metadata JSON:", e);
-      // metadata stays undefined — the prose itself already streamed correctly;
-      // losing the invented-theme tag is a much smaller failure than crashing the UI.
-    }
-  }
-
-  onDone(visibleText, metadata);
+  // transport-failure with no requestId to resume from, or resume itself
+  // also failed — the existing generic surface, unchanged from before this
+  // plan (the client's own single silent auto-retry in StoryContext.tsx keys
+  // off exactly this kind).
+  onError({ kind: "stream-aborted", message: "Generation was interrupted before finishing." });
 }
