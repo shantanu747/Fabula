@@ -9,6 +9,7 @@ import { sessionForUser, setTestSession } from "@/test/session";
 import { createBarrier } from "@/test/latch";
 import { GENERATE_GUEST } from "@/lib/ratelimit/policy";
 import { neutralizeKvForEachTest } from "@/test/kv";
+import { chunkText, readAllFrames } from "@/test/sse";
 
 /**
  * The persisted half of /api/generate — the path the guest specs in
@@ -163,7 +164,8 @@ describe("POST /api/generate — write-through persistence", () => {
     const response = await POST(post({ storySoFar: [writer("one")] }));
 
     expect(response.status).toBe(200);
-    await expect(response.text()).resolves.toBe("The AI's paragraph.");
+    const frames = await readAllFrames(response);
+    expect(chunkText(frames)).toBe("The AI's paragraph.");
   });
 
   it("still delivers the paragraph when the mirror write fails", async () => {
@@ -204,7 +206,8 @@ describe("POST /api/generate — write-through persistence", () => {
       const response = await POST(post({ storySoFar: [writer("one")], storyId: story.id }));
 
       expect(response.status).toBe(200);
-      await expect(response.text()).resolves.toBe("The AI's paragraph.");
+      const frames = await readAllFrames(response);
+      expect(chunkText(frames)).toBe("The AI's paragraph.");
     } finally {
       __setDbForTests(real);
     }
@@ -324,7 +327,7 @@ describe("POST /api/generate — two turns racing on one story", () => {
     const bodies = await Promise.all(
       [1, 2].map(async () => {
         const response = await POST(post({ storySoFar: [writer("one")], storyId: story.id }));
-        return response.text();
+        return chunkText(await readAllFrames(response));
       })
     );
 
