@@ -8,6 +8,8 @@ import {
   HEALTH,
   REGISTER,
   REPORT,
+  RESUME_GUEST,
+  RESUME_USER,
   STORIES_READ,
   STORIES_WRITE,
   UNIDENTIFIED_GUEST_IP,
@@ -87,6 +89,14 @@ export function guardGenerate(request: Request, userId: string | undefined): Pro
 
 export function guardRegister(request: Request): Promise<Response | null> {
   return apply(REGISTER, clientIp(request), "Too many sign-up attempts. Try again shortly.");
+}
+
+/** Same signed-in-vs-guest identity split as guardGenerate (docs/adr/0043). */
+export function guardResume(request: Request, userId: string | undefined): Promise<Response | null> {
+  if (userId) {
+    return apply(RESUME_USER, userId, "Too many reconnect attempts. Give it a moment and try again.");
+  }
+  return apply(RESUME_GUEST, clientIp(request), "Too many reconnect attempts. Give it a moment and try again.");
 }
 
 /**
