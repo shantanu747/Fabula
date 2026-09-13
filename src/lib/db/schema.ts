@@ -99,6 +99,15 @@ export const stories = pgTable("story", {
   // pre-existing rows (all of which have zero paragraphs backfilled anyway).
   paragraphCount: integer("paragraphCount").notNull().default(0),
   contentHash: text("contentHash"),
+  // Set by POST /api/stories when the client sends an Idempotency-Key header
+  // (docs/adr/0044-durable-writer-turns-and-idempotent-creation.md) — null for
+  // any row created before this column existed, and for the (currently
+  // theoretical) case of a caller that omits the header. Null is deliberately
+  // never unique-constrained against other nulls (Postgres's default UNIQUE
+  // behavior already treats every null as distinct from every other null, so
+  // this needs no extra opt-out); only two real, non-null keys under the same
+  // owner ever collide.
+  idempotencyKey: text("idempotencyKey"),
   createdAt: timestamp("createdAt", { mode: "date" }).notNull().defaultNow(),
   updatedAt: timestamp("updatedAt", { mode: "date" }).notNull().defaultNow(),
 }, (t) => [
@@ -118,7 +127,13 @@ export const stories = pgTable("story", {
   // "id" tiebreaker addition as above, for the feed's keyset pagination.
   index("stories_updated_at_id_is_shared_idx")
     .on(sql`"updatedAt" DESC`, sql`"id" DESC`)
-    .where(sql`"isShared" = true`)
+    .where(sql`"isShared" = true`),
+  // The serialization point for idempotent story creation, same role as
+  // story_paragraph's UNIQUE(storyId, position) (ADRs 0013/0016): a second
+  // POST /api/stories with the same key, from the same owner, collides here
+  // (23505) rather than inserting a second row — scoped by ownerId, not
+  // global, so two different Writers can never collide on the same key.
+  unique().on(t.ownerId, t.idempotencyKey),
 ]);
 
 export const storyParagraphs = pgTable("story_paragraph", {
