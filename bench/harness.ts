@@ -13,6 +13,7 @@ import { Pool } from "pg";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { migrate } from "drizzle-orm/node-postgres/migrator";
 import { startMockProvider } from "../test-support/mock-provider/server";
+import { SSEStreamParser } from "../src/lib/streaming/protocol";
 import { streamResponse } from "../e2e/helpers/mock";
 import { resetDatabase } from "../e2e/helpers/db";
 import {
@@ -283,15 +284,20 @@ async function timedGenerate(
     return { status: res.status, totalMs: performance.now() - start, aiText: "", storySoFarBytes };
   }
 
+  // The wire is now framed SSE (docs/adr/0042), not raw prose — decode with
+  // the same parser the client uses and concatenate `chunk` events' text.
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
+  const parser = new SSEStreamParser();
   let ttftMs: number | undefined;
   let aiText = "";
   for (;;) {
     const { done, value } = await reader.read();
     if (done) break;
     if (ttftMs === undefined) ttftMs = performance.now() - start;
-    aiText += decoder.decode(value, { stream: true });
+    for (const frame of parser.push(decoder.decode(value, { stream: true }))) {
+      if (frame.event.event === "chunk") aiText += frame.event.data.text;
+    }
   }
   return { status: res.status, ttftMs, totalMs: performance.now() - start, aiText, storySoFarBytes };
 }

@@ -10,12 +10,19 @@ import { guardGenerate } from "@/lib/ratelimit/guard";
 import { clientIp } from "@/lib/ratelimit/policy";
 import { acquireLease } from "@/lib/admission/lease";
 import { checkBudget, recordSpend, type BudgetIdentity } from "@/lib/budget";
-import { FIRST_CHUNK_TIMEOUT_MS, MAX_OUTPUT_TOKENS, STREAM_IDLE_TIMEOUT_MS } from "@/lib/providers/constants";
+import {
+  FIRST_CHUNK_TIMEOUT_MS,
+  MAX_OUTPUT_TOKENS,
+  RESUME_GRACE_MS,
+  STREAM_IDLE_TIMEOUT_MS,
+} from "@/lib/providers/constants";
 import { getProvider, suggestAlternative } from "@/lib/providers/registry";
 import { estimateCostUsd } from "@/lib/providers/pricing";
 import type { GenerationResult, InventedMetadata, StoryParagraph } from "@/lib/providers/types";
 import { log, LOG_EVENTS } from "@/lib/observability/logger";
 import { resolveRequestId } from "@/lib/observability/requestId";
+import { encodeHeartbeat, encodeStreamEvent, type StreamEvent } from "@/lib/streaming/protocol";
+import { createResumeBuffer } from "@/lib/streaming/resumeBuffer";
 import {
   isStoryParagraphArray,
   areValidHints,
@@ -72,7 +79,10 @@ function isAIsTurn(storySoFar: StoryParagraph[]): boolean {
   return storySoFar[storySoFar.length - 1].author !== "ai";
 }
 
-const METADATA_SENTINEL = "\n FABULA:METADATA ";
+/** Comment/heartbeat cadence during long provider silence (docs/adr/0042) —
+ *  well under STREAM_IDLE_TIMEOUT_MS, so an intermediary never mistakes an
+ *  idle-but-alive stream for a dead one. */
+const HEARTBEAT_INTERVAL_MS = 15_000;
 
 const tracer = trace.getTracer("fabula");
 
@@ -366,21 +376,76 @@ export async function POST(request: Request) {
   // narrowing above across a function boundary, only within the same scope.
   const activeProvider = provider;
 
-  // --- Timeouts and cancellation (docs/adr/0023) -----------------------------
+  // --- Timeouts and cancellation (docs/adr/0023, extended by docs/adr/0043) --
   //
-  // One AbortController drives the provider call throughout its life. Two
+  // One AbortController drives the provider call throughout its life. Three
   // independent sources can trip it: the client going away (request.signal —
-  // wired in here for the first time so an abandoned tab stops costing money
-  // both before and during streaming) and our own idle timers. `abortReason`
-  // is tracked explicitly rather than inferred from the resulting error's
-  // name/type, because that can't tell a client disconnect apart from our own
-  // timeout — both surface as an AbortError from the SDK.
+  // wired in here so an abandoned tab stops costing money both before and
+  // during streaming), our own idle timers, and — once streaming has begun
+  // and Redis is configured — a one-shot grace timer that gives a disconnected
+  // client a bounded window to be resumed before its provider call is finally
+  // killed (docs/adr/0043). `abortReason` is tracked explicitly rather than
+  // inferred from the resulting error's name/type, because that can't tell a
+  // client disconnect apart from our own timeout — both surface as an
+  // AbortError from the SDK.
   const providerAbort = new AbortController();
   let abortReason: "client" | "timeout" | undefined;
+  // Declared here, not only where first used, so armTimeout's heartbeat branch
+  // below never risks a temporal-dead-zone reference — it's called once
+  // pre-first-chunk (no controller, heartbeat branch never taken) before this
+  // point would otherwise be reached if it were declared later.
+  const encoder = new TextEncoder();
+
+  // Resume state, referenced by closures defined before it's known whether
+  // the request will ever reach the streaming phase at all (a pre-first-chunk
+  // disconnect must still abort immediately — the client has no requestId to
+  // resume with yet, since headers haven't been sent).
+  let streamStarted = false;
+  let clientGone = false;
+  let disconnectHandled = false;
+  // `resumeBuffer` itself is declared further down, as a `const`, right where
+  // it's actually assigned (once, unconditionally) — every closure defined
+  // here that reads it (handleDisconnect, emit, driveGeneration) is only ever
+  // invoked after that assignment has run, so referencing it ahead of its own
+  // declaration is safe: a closure resolves free variables at call time, not
+  // definition time.
+  let graceTimer: ReturnType<typeof setTimeout> | undefined;
+
+  function clearGraceTimer() {
+    if (graceTimer !== undefined) {
+      clearTimeout(graceTimer);
+      graceTimer = undefined;
+    }
+  }
+
+  /** The one place a client disconnect is actually handled, reached from both
+   *  `request.signal`'s abort listener and the ReadableStream's own `cancel()`
+   *  — a real disconnect can trip either first, or both. Idempotent, so which
+   *  one gets there first doesn't matter. */
+  function handleDisconnect() {
+    if (disconnectHandled) return;
+    disconnectHandled = true;
+    clientGone = true;
+
+    if (streamStarted && resumeBuffer) {
+      // Keep the provider call running, unresumed, for one bounded window —
+      // the substance of the resume tradeoff (docs/adr/0043). The still-running
+      // generation loop (driveGeneration) is what actually observes this abort
+      // and reaches a terminal state; this function only ever schedules it.
+      graceTimer = setTimeout(() => {
+        abortReason = "client";
+        providerAbort.abort();
+      }, RESUME_GRACE_MS);
+    } else {
+      // No resume possible (pre-stream, or Redis unavailable) — abort now,
+      // exactly the pre-existing behavior.
+      abortReason = "client";
+      providerAbort.abort();
+    }
+  }
 
   function onClientAbort() {
-    abortReason = "client";
-    providerAbort.abort();
+    handleDisconnect();
   }
   request.signal.addEventListener("abort", onClientAbort);
   if (request.signal.aborted) onClientAbort();
@@ -390,16 +455,34 @@ export async function POST(request: Request) {
   // AbortController is what actually supports both phases (a fixed budget pre-
   // first-chunk, a resettable one once streaming starts) off one signal.
   let idleTimer: ReturnType<typeof setTimeout> | undefined;
-  function armTimeout(ms: number) {
+  let heartbeatTimer: ReturnType<typeof setInterval> | undefined;
+  /** `controller` is only ever passed once streaming has actually begun — a
+   *  heartbeat before then would write bytes into a response that doesn't
+   *  exist yet. */
+  function armTimeout(ms: number, controller?: ReadableStreamDefaultController<Uint8Array>) {
     idleTimer = setTimeout(() => {
       abortReason = "timeout";
       providerAbort.abort();
     }, ms);
+    if (controller) {
+      heartbeatTimer = setInterval(() => {
+        if (clientGone) return;
+        try {
+          controller.enqueue(encoder.encode(encodeHeartbeat()));
+        } catch {
+          clientGone = true;
+        }
+      }, HEARTBEAT_INTERVAL_MS);
+    }
   }
   function clearIdle() {
     if (idleTimer !== undefined) {
       clearTimeout(idleTimer);
       idleTimer = undefined;
+    }
+    if (heartbeatTimer !== undefined) {
+      clearInterval(heartbeatTimer);
+      heartbeatTimer = undefined;
     }
   }
 
@@ -482,11 +565,14 @@ export async function POST(request: Request) {
   const ttftMs = Date.now() - startedAtMs;
   log.info(LOG_EVENTS.GENERATE_FIRST_CHUNK, { requestId, providerId: input.providerId, ttftMs });
 
-  const encoder = new TextEncoder();
   let aiText = "";
+  let eventIdCounter = 0;
+  function nextEventId(): number {
+    return ++eventIdCounter;
+  }
 
   // Guards the stream lifecycle against running its terminal logic twice: a
-  // client disconnect mid-stream can reach `pull()`'s catch (via the
+  // client disconnect mid-stream can reach `driveGeneration`'s catch (via the
   // request.signal listener above, forwarded onto providerAbort) and the
   // platform's own ReadableStream `cancel()` at nearly the same time, since
   // both ultimately observe the same disconnect.
@@ -494,6 +580,7 @@ export async function POST(request: Request) {
   async function finishOnce(args: FinishArgs): Promise<boolean> {
     if (finishedOnce) return false;
     finishedOnce = true;
+    clearGraceTimer();
     await finish(args);
     return true;
   }
@@ -550,17 +637,68 @@ export async function POST(request: Request) {
     }
   }
 
-  /** done branch shared by start() and pull(): persist, emit the sentinel, close, finish the span. */
-  async function completeGeneration(controller: ReadableStreamDefaultController<Uint8Array>, result: GenerationResult) {
-    const persistOutcome = await persistAIParagraph(result.invented);
-    if (result.invented) {
-      controller.enqueue(encoder.encode(METADATA_SENTINEL + JSON.stringify(result.invented)));
+  /**
+   * Writes one frame. Silently skips the live write once the client is known
+   * gone (a torn-down controller throws on enqueue) but always records into
+   * the resume buffer when one exists — that's the entire mechanism that lets
+   * a reconnecting client catch up, including the tail of a generation that
+   * finished after its original connection dropped (docs/adr/0043).
+   */
+  async function emit(controller: ReadableStreamDefaultController<Uint8Array>, event: StreamEvent): Promise<void> {
+    const id = nextEventId();
+    if (!clientGone) {
+      try {
+        controller.enqueue(encoder.encode(encodeStreamEvent(id, event)));
+      } catch {
+        // The consumer vanished between our clientGone check and this call —
+        // treat it as already-gone rather than let this throw mask whatever
+        // the caller is in the middle of reporting.
+        clientGone = true;
+      }
     }
+    if (resumeBuffer) await resumeBuffer.record(id, event);
+  }
+
+  /** done branch shared by every path through driveGeneration below: persist,
+   *  emit meta/usage/done, close, finish the span. Runs — and persists —
+   *  exactly the same way whether or not the client is still connected, since
+   *  a completion reached during the resume grace window is a real success
+   *  the Writer just hasn't seen yet. */
+  async function handleGenerationResult(controller: ReadableStreamDefaultController<Uint8Array>, result: GenerationResult) {
+    const persistOutcome = await persistAIParagraph(result.invented);
+
+    await emit(controller, { event: "meta", data: { invented: result.invented } });
+    await emit(controller, {
+      event: "usage",
+      data: {
+        model: result.model,
+        ...(result.usage
+          ? {
+              inputTokens: result.usage.inputTokens,
+              outputTokens: result.usage.outputTokens,
+              ...(result.usage.cacheCreationInputTokens !== undefined
+                ? { cacheCreationInputTokens: result.usage.cacheCreationInputTokens }
+                : {}),
+              ...(result.usage.cacheReadInputTokens !== undefined
+                ? { cacheReadInputTokens: result.usage.cacheReadInputTokens }
+                : {}),
+            }
+          : {}),
+      },
+    });
+    await emit(controller, {
+      event: "done",
+      data: {
+        persisted: persistOutcome === "written",
+        ...(persistedStoryId ? { position: aiPosition, storyId: persistedStoryId } : {}),
+      },
+    });
+
     // finish() (span end, logging, the generation_event write) runs before
     // controller.close() rather than after — close() signals "done" to the
-    // client immediately, without waiting on pull()'s own returned promise, so
-    // anything sequenced after it here would still be in flight once the
-    // caller believes the request is fully finished.
+    // client immediately, without waiting on this function's own returned
+    // promise, so anything sequenced after it here would still be in flight
+    // once the caller believes the request is fully finished.
     const didFinish = await finishOnce({
       outcome: persistOutcome === "failed" ? "persist_failed" : "success",
       persisted: persistOutcome === "written",
@@ -568,81 +706,159 @@ export async function POST(request: Request) {
       ttftMs,
       totalMs: Date.now() - startedAtMs,
     });
-    if (didFinish) controller.close();
+    if (didFinish) {
+      if (resumeBuffer) await resumeBuffer.flush();
+      if (!clientGone) {
+        try {
+          controller.close();
+        } catch {
+          // Already gone — nothing to close.
+        }
+      }
+    }
   }
 
-  const stream = new ReadableStream<Uint8Array>({
-    start(controller) {
-      return context.with(trace.setSpan(context.active(), span), async () => {
-        if (first.done) {
-          await completeGeneration(controller, first.value);
-        } else {
-          aiText += first.value;
-          controller.enqueue(encoder.encode(first.value));
-          armTimeout(STREAM_IDLE_TIMEOUT_MS);
-        }
-      });
-    },
-    pull(controller) {
-      return context.with(trace.setSpan(context.active(), span), async () => {
-        try {
-          const { value, done } = await iterator.next();
-          clearIdle();
-          if (done) {
-            await completeGeneration(controller, value);
-          } else {
-            aiText += value;
-            controller.enqueue(encoder.encode(value));
-            armTimeout(STREAM_IDLE_TIMEOUT_MS);
+  /** The generation-driving loop, run once from `start()` and never gated by
+   *  `pull()` — a client disconnect must not stop this from progressing
+   *  toward a terminal state during the resume grace window, and `pull()`'s
+   *  backpressure has nothing real to protect here (the provider keeps
+   *  generating regardless of how fast the browser reads). */
+  async function driveGeneration(controller: ReadableStreamDefaultController<Uint8Array>): Promise<void> {
+    if (first.done) {
+      await handleGenerationResult(controller, first.value);
+      return;
+    }
+    aiText += first.value;
+    await emit(controller, { event: "chunk", data: { text: first.value } });
+    armTimeout(STREAM_IDLE_TIMEOUT_MS, controller);
+
+    for (;;) {
+      let step: IteratorResult<string, GenerationResult>;
+      try {
+        step = await iterator.next();
+      } catch (err) {
+        clearIdle();
+
+        if (clientGone) {
+          // Either the grace window expired (resumeBuffer set) or resume was
+          // never possible (Redis unavailable) — either way there is no live
+          // consumer, so record a terminal frame into the resume buffer only
+          // (if one exists), so a reconnecting client gets a clean typed
+          // error instead of hanging forever waiting for a generation that
+          // will never finish.
+          if (resumeBuffer) {
+            const id = nextEventId();
+            await resumeBuffer.record(id, {
+              event: "error",
+              data: {
+                kind: "stream-aborted",
+                message: "Generation was cancelled after the connection stayed away too long to resume.",
+                retryable: true,
+              },
+            });
           }
-        } catch (err) {
-          clearIdle();
-          if (abortReason === "client") {
-            // The platform's own cancel() below is what actually runs cleanup
-            // for a disconnected client; touching a controller whose consumer
-            // is already gone risks throwing on top of the original error.
-            return;
-          }
-          // A provider failure or stall mid-stream has to reach the client. The
-          // client maps a broken stream to "stream-aborted" and runs its single
-          // auto-retry; closing the stream normally instead would hand the
-          // Writer a truncated paragraph presented as a finished one, with
-          // nothing to retry from. Never offered as a provider switch (see
-          // docs/adr/0023): a seam mid-paragraph is worse than a plain retry.
           const didFinish = await finishOnce({
-            outcome: "provider_error",
+            outcome: "cancelled",
             persisted: false,
             ttftMs,
             totalMs: Date.now() - startedAtMs,
-            err,
           });
-          if (didFinish) controller.error(err);
+          if (didFinish) await safeReturn();
+          return;
         }
-      });
-    },
-    cancel(reason) {
-      return context.with(trace.setSpan(context.active(), span), async () => {
-        // The Writer's client discards the partial text too (streamGeneration returns
-        // without onDone on abort), so dropping it here keeps both sides in sync. The
-        // client's one auto-retry re-runs the whole turn; syncStoryParagraphs is
-        // idempotent against the already-persisted Writer paragraphs, so the retry
-        // appends nothing and simply regenerates the AI turn.
-        clearIdle();
-        await finishOnce({
-          outcome: "cancelled",
+
+        // A provider failure or idle stall, client still (as far as we know)
+        // connected. The framed protocol's whole point: a typed error frame
+        // on a normally-terminated stream, not an abnormal `controller.error()`
+        // the client has to infer meaning from. Never offered as a provider
+        // switch (docs/adr/0023 rule 3): a seam mid-paragraph is worse than a
+        // plain retry, so no suggestedProviderId here, ever.
+        await emit(controller, {
+          event: "error",
+          data: {
+            kind: "stream-aborted",
+            message: "Generation was interrupted before finishing.",
+            retryable: true,
+          },
+        });
+        const didFinish = await finishOnce({
+          outcome: "provider_error",
           persisted: false,
           ttftMs,
           totalMs: Date.now() - startedAtMs,
+          err,
         });
-        await safeReturn();
+        if (didFinish) {
+          if (resumeBuffer) await resumeBuffer.flush();
+          if (!clientGone) {
+            try {
+              controller.close();
+            } catch {
+              // Already gone — nothing to close.
+            }
+          }
+        }
+        return;
+      }
+
+      clearIdle();
+      if (step.done) {
+        await handleGenerationResult(controller, step.value);
+        return;
+      }
+      aiText += step.value;
+      await emit(controller, { event: "chunk", data: { text: step.value } });
+      armTimeout(STREAM_IDLE_TIMEOUT_MS, controller);
+    }
+  }
+
+  // Assigned before streamStarted flips true, deliberately: handleDisconnect's
+  // `streamStarted && resumeBuffer` check above short-circuits on
+  // `streamStarted` first, so as long as that only ever becomes true once
+  // this line has already run, nothing can observe `resumeBuffer` before it
+  // exists — safe against `const`'s TDZ even though handleDisconnect
+  // references it ahead of this declaration in the source.
+  const resumeBuffer = await createResumeBuffer(requestId, admissionIdentity);
+  streamStarted = true;
+
+  // driveGeneration's own promise, captured so cancel() below can await it —
+  // but only when there's no grace window to wait out (see cancel()).
+  let generationDone: Promise<void> = Promise.resolve();
+
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      generationDone = context.with(trace.setSpan(context.active(), span), () => driveGeneration(controller));
+      return generationDone;
+    },
+    cancel(reason) {
+      return context.with(trace.setSpan(context.active(), span), async () => {
+        handleDisconnect();
         void reason;
+        // No resume available: the pre-existing behavior is that a disconnect
+        // aborts and cleans up (finishOnce, safeReturn) essentially
+        // immediately, and callers of reader.cancel() — including every
+        // existing disconnect test — depend on that having already happened
+        // by the time this promise resolves. Awaiting driveGeneration's own
+        // promise here (rather than doing the cleanup inline, as the old
+        // cancel() did) gets the same effect through the one place that now
+        // owns it.
+        //
+        // Resume available: a grace window was just scheduled instead of an
+        // immediate abort, and driveGeneration keeps running — for up to
+        // RESUME_GRACE_MS — entirely independently of this Response having
+        // been considered closed. cancel() must not block on that; the whole
+        // point of the grace window is that work continues after the
+        // response is closed (docs/adr/0043).
+        if (!resumeBuffer) {
+          await generationDone;
+        }
       });
     },
   });
 
   return new Response(stream, {
     headers: {
-      "Content-Type": "text/plain; charset=utf-8",
+      "Content-Type": "text/event-stream",
       "Cache-Control": "no-store",
       "x-request-id": requestId,
     },

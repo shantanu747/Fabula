@@ -118,3 +118,22 @@ export function createFakeBudgetKv(): Redis {
     expire: async () => 1,
   } as unknown as Redis;
 }
+
+/**
+ * A generic get/set stand-in for the resume buffer (`src/lib/streaming/resumeBuffer.ts`),
+ * which stores and reads back one arbitrary JSON-shaped record per key rather
+ * than a numeric counter — unlike `createFakeBudgetKv`, this is a plain map,
+ * no arithmetic semantics to model. TTL is accepted and ignored, same as
+ * `createFakeAdmissionKv` — expiry is proven against a real Redis, not this fake.
+ */
+export function createFakeResumeKv(): Redis {
+  const store = new Map<string, unknown>();
+
+  return {
+    get: async (key: string) => (store.has(key) ? store.get(key)! : null),
+    set: async (key: string, value: unknown) => {
+      store.set(key, value);
+      return "OK";
+    },
+  } as unknown as Redis;
+}

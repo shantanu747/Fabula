@@ -26,3 +26,21 @@ export const FIRST_CHUNK_TIMEOUT_MS = 20_000;
 /** Max gap between chunks once streaming has begun. Generous — some models pause
  *  mid-paragraph — but bounded, so a half-open connection cannot hang forever. */
 export const STREAM_IDLE_TIMEOUT_MS = 30_000;
+
+/**
+ * How long generation keeps running, unresumed, after the client disconnects
+ * mid-stream, before the provider call is aborted for real (docs/adr/0043).
+ * Only takes effect once Redis is configured (`hasKv()`) — otherwise a
+ * disconnect still aborts immediately, exactly as before this existed.
+ *
+ * A judgment call, not a measurement: `bench/BASELINE.md`'s turn-duration
+ * numbers come from a fast mock provider dominated by DB/rate-limit overhead,
+ * not real model latency, so they don't answer "how long should we keep
+ * paying for an abandoned connection." This is derived instead from the only
+ * real timing judgment calls already in the codebase — `FIRST_CHUNK_TIMEOUT_MS`
+ * and `STREAM_IDLE_TIMEOUT_MS` above — as a value on the same order: long
+ * enough to survive a lock-screen or a tunnel drop (the mobile co-writing
+ * persona PRD.md names), short enough to bound what an abandoned tab costs.
+ * Revisit once real provider-latency data exists.
+ */
+export const RESUME_GRACE_MS = 15_000;

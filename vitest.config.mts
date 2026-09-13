@@ -58,6 +58,14 @@ export default defineConfig({
         "src/lib/kv/**": { statements: 100, branches: 100, functions: 100, lines: 100 },
         "src/lib/admission/**": { statements: 100, branches: 100, functions: 100, lines: 100 },
         "src/lib/budget/**": { statements: 100, branches: 100, functions: 100, lines: 100 },
+        // New in v4 Plan 4 (docs/adr/0042, docs/adr/0043): the framed wire
+        // protocol and the resume buffer. Same tier as kv/admission/budget —
+        // protocol.ts is pure and easy to hold at 100% (the plan's own
+        // instruction), and resumeBuffer.ts is exactly the "subtle,
+        // expensive-to-get-wrong" shape (a wrong cap/TTL/identity-check is
+        // either unbounded storage or a cross-account data leak) those three
+        // are already held to.
+        "src/lib/streaming/**": { statements: 100, branches: 100, functions: 100, lines: 100 },
         // Small pure helpers with no side effects and few enough branches
         // (stageIndex's four boundaries chief among them) that partial coverage
         // would just mean an untested boundary, not a cost/benefit tradeoff.

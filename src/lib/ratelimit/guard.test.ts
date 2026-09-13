@@ -8,6 +8,7 @@ import {
   guardHealth,
   guardRegister,
   guardReport,
+  guardResume,
   guardStoriesRead,
   guardStoriesWrite,
 } from "./guard";
@@ -48,6 +49,8 @@ describe("with no database configured", () => {
   it.each([
     ["a guest generation", () => guardGenerate(request(), undefined)],
     ["a signed-in generation", () => guardGenerate(request(), "user-1")],
+    ["a guest resume", () => guardResume(request(), undefined)],
+    ["a signed-in resume", () => guardResume(request(), "user-1")],
     ["a registration", () => guardRegister(request())],
     ["a health check", () => guardHealth(request())],
     ["a stories read", () => guardStoriesRead("user-1")],

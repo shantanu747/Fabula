@@ -127,6 +127,24 @@ export const REPORT: RateLimitPolicy = {
 };
 
 /**
+ * The resume endpoint (docs/adr/0043) is a Redis read with no provider call
+ * behind it, invoked only on a recovery path (a client reconnecting after a
+ * drop), not on every turn — generous relative to GENERATE_GUEST/GENERATE_USER
+ * for that reason, same identity split (account when signed in, else address).
+ */
+export const RESUME_GUEST: RateLimitPolicy = {
+  scope: "resume:guest",
+  capacity: 20,
+  refillPerSecond: 1 / 10,
+};
+
+export const RESUME_USER: RateLimitPolicy = {
+  scope: "resume:user",
+  capacity: 40,
+  refillPerSecond: 1 / 5,
+};
+
+/**
  * Number of trusted hops between the caller and this app that append to
  * `x-forwarded-for` on the way in. Vercel is one hop, appending exactly once;
  * a self-hosted deployment with its own ingress in front of Vercel (or another

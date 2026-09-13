@@ -22,10 +22,11 @@ import { POST } from "./route";
 import { __setDbForTests } from "@/lib/db/client";
 import type { AppDatabase } from "@/lib/db/types";
 import { __setKvForTests } from "@/lib/kv/client";
-import { createFakeAdmissionKv, throwingKv } from "@/test/kv";
+import { createFakeAdmissionKv, createFakeResumeKv, throwingKv } from "@/test/kv";
+import { chunkText, framesOfType, readAllFrames } from "@/test/sse";
 import { acquireLease } from "@/lib/admission/lease";
 import { PROVIDERS } from "@/lib/providers/registry";
-import { FIRST_CHUNK_TIMEOUT_MS, MAX_OUTPUT_TOKENS } from "@/lib/providers/constants";
+import { FIRST_CHUNK_TIMEOUT_MS, MAX_OUTPUT_TOKENS, RESUME_GRACE_MS } from "@/lib/providers/constants";
 import type {
   GenerateParagraphInput,
   GenerationResult,
@@ -44,7 +45,6 @@ import type {
  * The persisted path is covered in route.db.test.ts against a real Postgres.
  */
 const FAKE_ID = "fake-provider";
-const SENTINEL = "\n FABULA:METADATA ";
 
 interface FakeOptions {
   chunks?: string[];
@@ -65,7 +65,12 @@ interface FakeOptions {
   hang?: boolean;
   /** Yields these chunks, then never resolves the next .next() until the
    *  route's AbortSignal fires — models a mid-stream stall. Takes the place
-   *  of `chunks` when set. */
+   *  of `chunks` when set. Also the timing-robust way to simulate "still
+   *  mid-generation" for a disconnect test: unlike a plain `chunks` fake
+   *  (which yields everything with no real await boundary and can race a
+   *  disconnect assertion under the new self-driving generation loop,
+   *  docs/adr/0042), this one genuinely blocks on the second `.next()` call
+   *  until aborted. */
   stallAfterChunks?: string[];
 }
 
@@ -197,7 +202,11 @@ beforeEach(() => {
   // file would share one real admission lease (PER_IDENTITY_CAP is 2) instead
   // of the fails-open-with-nothing-configured behaviour most of this file
   // assumes — the "admission control" describe block below injects its own
-  // fake KV per test, which still works: it runs after this reset.
+  // fake KV per test, which still works: it runs after this reset. It also
+  // means resumeBuffer.createResumeBuffer() sees hasKv() === false by default,
+  // so the pre-existing tests in this file (none of which install a KV
+  // fixture) keep the pre-resume "disconnect aborts immediately" behavior —
+  // the "resume and the grace window" describe block below installs its own.
   originalKvUrl = process.env.KV_REST_API_URL;
   originalKvToken = process.env.KV_REST_API_TOKEN;
   delete process.env.KV_REST_API_URL;
@@ -306,46 +315,72 @@ describe("POST /api/generate — turn policy", () => {
 });
 
 describe("POST /api/generate — streaming", () => {
-  it("streams the provider's chunks as the response body", async () => {
+  it("streams the provider's chunks as framed chunk events", async () => {
     installFake({ chunks: ["Once ", "upon ", "a time."] });
 
     const response = await POST(post(validBody()));
 
     expect(response.status).toBe(200);
-    expect(response.headers.get("Content-Type")).toBe("text/plain; charset=utf-8");
+    expect(response.headers.get("Content-Type")).toBe("text/event-stream");
     // Never cache a story paragraph — every generation is unique.
     expect(response.headers.get("Cache-Control")).toBe("no-store");
-    await expect(response.text()).resolves.toBe("Once upon a time.");
+
+    const frames = await readAllFrames(response);
+    expect(chunkText(frames)).toBe("Once upon a time.");
+    // One meta, one usage, one done — each event type appears exactly once per
+    // generation (docs/adr/0042).
+    expect(framesOfType(frames, "meta")).toHaveLength(1);
+    expect(framesOfType(frames, "usage")).toHaveLength(1);
+    expect(framesOfType(frames, "done")).toEqual([{ persisted: false }]);
+    // Every frame carries a strictly increasing id.
+    const ids = frames.map((f) => f.id);
+    expect(ids).toEqual([...ids].sort((a, b) => (a ?? 0) - (b ?? 0)));
+    expect(new Set(ids).size).toBe(ids.length);
   });
 
-  it("appends invented metadata after the sentinel", async () => {
+  it("emits a meta event carrying invented metadata", async () => {
     const metadata = { theme: "noir", characters: "a detective" };
     installFake({ chunks: ["It rained."], metadata });
 
     const response = await POST(post(validBody()));
+    const frames = await readAllFrames(response);
 
-    await expect(response.text()).resolves.toBe(
-      `It rained.${SENTINEL}${JSON.stringify(metadata)}`
-    );
+    expect(chunkText(frames)).toBe("It rained.");
+    expect(framesOfType(frames, "meta")).toEqual([{ invented: metadata }]);
   });
 
-  it("emits no sentinel when the provider invented nothing", async () => {
+  it("emits a meta event with no invented data when the provider invented nothing", async () => {
     installFake({ chunks: ["It rained."] });
 
     const response = await POST(post(validBody()));
+    const frames = await readAllFrames(response);
 
-    await expect(response.text()).resolves.toBe("It rained.");
+    expect(framesOfType(frames, "meta")).toEqual([{ invented: undefined }]);
   });
 
   it("emits metadata even when the provider returns it without any prose", async () => {
     // The generator finishes on its very first .next(), so this exercises the
-    // `first.done` branch that the pull() loop never reaches.
+    // `first.done` branch the main loop never reaches.
     const metadata = { theme: "noir" };
     installFake({ chunks: [], metadata });
 
     const response = await POST(post(validBody()));
+    const frames = await readAllFrames(response);
 
-    await expect(response.text()).resolves.toBe(`${SENTINEL}${JSON.stringify(metadata)}`);
+    expect(chunkText(frames)).toBe("");
+    expect(framesOfType(frames, "meta")).toEqual([{ invented: metadata }]);
+    expect(framesOfType(frames, "done")).toEqual([{ persisted: false }]);
+  });
+
+  it("carries usage on the usage event when the provider reports it", async () => {
+    installFake({ chunks: ["Hi."], usage: { inputTokens: 10, outputTokens: 5 }, model: "claude-sonnet-5" });
+
+    const response = await POST(post(validBody()));
+    const frames = await readAllFrames(response);
+
+    expect(framesOfType(frames, "usage")).toEqual([
+      { model: "claude-sonnet-5", inputTokens: 10, outputTokens: 5 },
+    ]);
   });
 
   it("forwards the Writer's hints and the token cap to the provider", async () => {
@@ -383,7 +418,8 @@ describe("POST /api/generate — provider failures", () => {
     const response = await POST(post(validBody()));
 
     expect(response.status).toBe(200);
-    await expect(response.text()).resolves.toBe("It works on retry.");
+    const frames = await readAllFrames(response);
+    expect(chunkText(frames)).toBe("It works on retry.");
     expect(fakeCallCount).toBe(2);
   });
 
@@ -458,46 +494,53 @@ describe("POST /api/generate — provider failures", () => {
     await expect(response.json()).resolves.toMatchObject({ kind: "provider-unavailable" });
   });
 
-  it("errors the stream (no suggestion) on a mid-stream idle stall", async () => {
+  it("emits a typed error frame (no suggestion) on a mid-stream idle stall, on a normally-closed stream", async () => {
     // Case (d): a stall after streaming has begun is never offered as a
-    // provider switch (rule 3) — same controller.error() path as any other
-    // mid-stream failure.
+    // provider switch (rule 3) — same "typed error, clean close" path as any
+    // other mid-stream failure (docs/adr/0042 — this used to be an abnormally
+    // terminated controller.error(), which is exactly what's gone now).
     vi.useFakeTimers();
     installFake({ stallAfterChunks: ["The story begins, ", "then falls silent."] });
     vi.spyOn(console, "error").mockImplementation(() => {});
 
     const response = await POST(post(validBody()));
     expect(response.status).toBe(200);
-    const textPromise = response.text();
-    // Safety-net catch attached in the same tick as creation: response.text()'s
-    // promise actually settles as a side effect of runAllTimersAsync() below,
-    // before the real assertion (the next line after it) gets a chance to
-    // subscribe — a gap Node's unhandledRejection detector can flag even though
-    // the rejection is fully handled a tick later. Harmless: multiple handlers
-    // on one promise don't interfere with each other.
-    textPromise.catch(() => {});
+    const framesPromise = readAllFrames(response);
     await vi.runAllTimersAsync();
+    const frames = await framesPromise;
 
-    await expect(textPromise).rejects.toThrow();
+    expect(chunkText(frames)).toBe("The story begins, then falls silent.");
+    expect(framesOfType(frames, "error")).toEqual([
+      { kind: "stream-aborted", message: "Generation was interrupted before finishing.", retryable: true },
+    ]);
+    // The error frame is the last thing on the wire — the stream then closes
+    // normally, no `done` event (the generation never reached one).
+    expect(frames.at(-1)?.event.event).toBe("error");
+    expect(framesOfType(frames, "done")).toHaveLength(0);
   });
 
-  it("errors the stream when the provider fails after streaming has begun", async () => {
-    // The headers are long gone, so the only way to tell the client is to break
-    // the stream — which is what drives its one auto-retry. Closing normally
-    // would present a truncated paragraph as a finished one.
+  it("emits a typed error frame when the provider fails after streaming has begun", async () => {
+    // The client used to have to infer a broken stream from an abnormal
+    // termination; now the server says so directly, then closes cleanly.
     installFake({ chunks: ["The story begins"], throwAfterChunks: true });
     vi.spyOn(console, "error").mockImplementation(() => {});
 
     const response = await POST(post(validBody()));
+    const frames = await readAllFrames(response);
 
     expect(response.status).toBe(200);
-    await expect(response.text()).rejects.toThrow();
+    expect(chunkText(frames)).toBe("The story begins");
+    expect(framesOfType(frames, "error")).toEqual([
+      { kind: "stream-aborted", message: "Generation was interrupted before finishing.", retryable: true },
+    ]);
   });
 
   it("disposes of the provider generator when the client goes away", async () => {
     // Without this the provider keeps generating — and keeps billing — for a
-    // Writer who already navigated away.
-    installFake({ chunks: ["one", "two", "three", "four"] });
+    // Writer who already navigated away. Uses stallAfterChunks (see FakeOptions'
+    // doc comment) so there's a genuine in-flight moment for cancel() to land in,
+    // regardless of the generation loop's own consumption pacing.
+    installFake({ stallAfterChunks: ["one", "two", "three", "four"] });
     vi.spyOn(console, "info").mockImplementation(() => {});
 
     const response = await POST(post(validBody()));
@@ -521,6 +564,89 @@ describe("POST /api/generate — provider failures", () => {
 
     expect(response.status).toBe(499);
     expect(fakeCallCount).toBe(1); // never retried
+  });
+});
+
+describe("POST /api/generate — resume and the grace window (docs/adr/0043)", () => {
+  it("schedules a grace window instead of aborting immediately when Redis is configured", async () => {
+    __setKvForTests(createFakeResumeKv());
+    vi.useFakeTimers();
+    installFake({ stallAfterChunks: ["one", "two"] });
+
+    const response = await POST(post(validBody()));
+    const reader = response.body!.getReader();
+    await reader.read(); // "one"
+    const cancelPromise = reader.cancel("writer navigated away");
+
+    // Still running just short of the grace window — proves the provider call
+    // was NOT aborted immediately, unlike the no-Redis case above.
+    await vi.advanceTimersByTimeAsync(RESUME_GRACE_MS - 1000);
+    expect(returnCalled).toBe(false);
+
+    await vi.advanceTimersByTimeAsync(2000);
+    await cancelPromise;
+    expect(returnCalled).toBe(true);
+  });
+
+  it("still completes and persists-worthy state reaches the resume buffer when the client disconnects but generation finishes within the grace window", async () => {
+    __setKvForTests(createFakeResumeKv());
+    installFake({ chunks: ["one ", "two ", "three"], usage: { inputTokens: 1, outputTokens: 1 } });
+
+    const response = await POST(post(validBody()));
+    const requestId = response.headers.get("x-request-id");
+    expect(requestId).toBeTruthy();
+
+    const reader = response.body!.getReader();
+    await reader.read();
+    await reader.cancel("writer navigated away"); // schedules the grace timer, doesn't abort
+
+    // The generation (a plain, non-stalling fake — no real await boundary
+    // stopping it) runs to completion on its own regardless of the cancel.
+    // Poll the resume buffer directly rather than assuming a specific number
+    // of microtask ticks.
+    const { readResumeBuffer } = await import("@/lib/streaming/resumeBuffer");
+    let record;
+    for (let i = 0; i < 50 && !record?.complete; i++) {
+      record = await readResumeBuffer(requestId!, "guest:unknown");
+      if (!record?.complete) await new Promise((r) => setTimeout(r, 10));
+    }
+
+    expect(record?.complete).toBe(true);
+    const doneEvents = record!.events.filter((e) => e.event.event === "done");
+    expect(doneEvents).toHaveLength(1);
+  });
+
+  it("records a terminal error into the resume buffer once the grace window actually expires", async () => {
+    __setKvForTests(createFakeResumeKv());
+    vi.useFakeTimers();
+    installFake({ stallAfterChunks: ["one"] });
+
+    const response = await POST(post(validBody()));
+    const requestId = response.headers.get("x-request-id")!;
+    const reader = response.body!.getReader();
+    await reader.read();
+    const cancelPromise = reader.cancel("writer navigated away");
+
+    await vi.advanceTimersByTimeAsync(RESUME_GRACE_MS + 1000);
+    await cancelPromise;
+
+    const { readResumeBuffer } = await import("@/lib/streaming/resumeBuffer");
+    const record = await readResumeBuffer(requestId, "guest:unknown");
+    expect(record?.complete).toBe(true);
+    const errorEvents = record!.events.filter((e) => e.event.event === "error");
+    expect(errorEvents).toHaveLength(1);
+  });
+
+  it("does not schedule a grace window when Redis is unavailable — disconnect still aborts immediately", async () => {
+    // No __setKvForTests call in this test: hasKv() is false (see beforeEach).
+    installFake({ stallAfterChunks: ["one", "two"] });
+
+    const response = await POST(post(validBody()));
+    const reader = response.body!.getReader();
+    await reader.read();
+    await reader.cancel("writer navigated away");
+
+    expect(returnCalled).toBe(true);
   });
 });
 
@@ -552,7 +678,7 @@ describe("POST /api/generate — OTel spans", () => {
     installFake({ chunks: ["Hello ", "world."], usage, model: "claude-sonnet-5" });
 
     const response = await POST(post(validBody()));
-    await response.text();
+    await readAllFrames(response);
 
     const spans = exporter.getFinishedSpans();
     expect(spans).toHaveLength(1);
@@ -575,7 +701,7 @@ describe("POST /api/generate — OTel spans", () => {
     installFake({ chunks: [secretProse], usage: { inputTokens: 1, outputTokens: 1 } });
 
     const response = await POST(post(validBody()));
-    await response.text();
+    await readAllFrames(response);
 
     const [span] = exporter.getFinishedSpans();
     expect(JSON.stringify(span.attributes)).not.toContain(secretProse);
@@ -597,7 +723,7 @@ describe("POST /api/generate — OTel spans", () => {
     installFake({ chunks: ["The story begins"], throwAfterChunks: true });
 
     const response = await POST(post(validBody()));
-    await expect(response.text()).rejects.toThrow();
+    await readAllFrames(response);
 
     const spans = exporter.getFinishedSpans();
     expect(spans).toHaveLength(1);
@@ -606,7 +732,7 @@ describe("POST /api/generate — OTel spans", () => {
   });
 
   it("ends exactly one span on cancellation", async () => {
-    installFake({ chunks: ["one", "two", "three", "four"] });
+    installFake({ stallAfterChunks: ["one", "two", "three", "four"] });
 
     const response = await POST(post(validBody()));
     const reader = response.body!.getReader();
@@ -625,8 +751,8 @@ describe("POST /api/generate — OTel spans", () => {
     // platform's own ReadableStream cancel() for the same event. Whichever
     // wins, finish() (and thus the span) must run exactly once. Uses a fake
     // that actually respects the signal (stallAfterChunks), so aborting makes
-    // iterator.next() reject — the only way to reach pull()'s own abort
-    // handling, not just cancel()'s.
+    // iterator.next() reject — the only way to reach the generation loop's
+    // own abort handling, not just cancel()'s.
     installFake({ stallAfterChunks: ["one", "two"] });
     vi.spyOn(console, "error").mockImplementation(() => {});
     const controller = new AbortController();
@@ -666,16 +792,9 @@ describe("POST /api/generate — OTel spans", () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
 
     const response = await POST(post(validBody()));
-    const textPromise = response.text();
-    // Safety-net catch attached in the same tick as creation: response.text()'s
-    // promise actually settles as a side effect of runAllTimersAsync() below,
-    // before the real assertion (the next line after it) gets a chance to
-    // subscribe — a gap Node's unhandledRejection detector can flag even though
-    // the rejection is fully handled a tick later. Harmless: multiple handlers
-    // on one promise don't interfere with each other.
-    textPromise.catch(() => {});
+    const framesPromise = readAllFrames(response);
     await vi.runAllTimersAsync();
-    await expect(textPromise).rejects.toThrow();
+    await framesPromise;
 
     const spans = exporter.getFinishedSpans();
     expect(spans).toHaveLength(1);
@@ -742,15 +861,28 @@ describe("POST /api/generate — admission control", () => {
     expect(kv.counts.get("admission:global") ?? 0).toBe(0);
   });
 
-  it("acquisitions balance to zero on a mid-stream client disconnect", async () => {
+  it("acquisitions balance to zero on a mid-stream client disconnect, once the resume grace window elapses", async () => {
+    // createFakeAdmissionKv() makes hasKv() true, which now also activates the
+    // resume grace window (docs/adr/0043) — this is a real interaction, not
+    // just an incidental one: admission release must still happen correctly
+    // even gated behind the new mechanism, so this asserts release happens
+    // only once the (fake-timer-advanced) grace window actually elapses.
     const kv = createFakeAdmissionKv();
     __setKvForTests(kv);
-    installFake({ chunks: ["one", "two", "three"] });
+    vi.useFakeTimers();
+    installFake({ stallAfterChunks: ["one", "two", "three"] });
 
     const response = await POST(post(validBody()));
     const reader = response.body!.getReader();
     await reader.read();
-    await reader.cancel("writer navigated away");
+    const cancelPromise = reader.cancel("writer navigated away");
+
+    // Not yet released — the grace window hasn't elapsed.
+    await vi.advanceTimersByTimeAsync(RESUME_GRACE_MS - 1000);
+    expect(kv.counts.get(guestKey()) ?? 0).toBe(1);
+
+    await vi.advanceTimersByTimeAsync(2000);
+    await cancelPromise;
 
     expect(kv.counts.get(guestKey()) ?? 0).toBe(0);
     expect(kv.counts.get("admission:global") ?? 0).toBe(0);
@@ -763,7 +895,8 @@ describe("POST /api/generate — admission control", () => {
     const response = await POST(post(validBody()));
 
     expect(response.status).toBe(200);
-    await expect(response.text()).resolves.toBe("Still works.");
+    const frames = await readAllFrames(response);
+    expect(chunkText(frames)).toBe("Still works.");
   });
 });
 
@@ -798,7 +931,8 @@ describe("POST /api/generate — budget governance", () => {
     const response = await POST(post(validBody()));
 
     expect(response.status).toBe(200);
-    await expect(response.text()).resolves.toBe("Under budget.");
+    const frames = await readAllFrames(response);
+    expect(chunkText(frames)).toBe("Under budget.");
   });
 
   it("skips the budget check entirely when no database is configured — guest writing must not gain a new hard dependency", async () => {
