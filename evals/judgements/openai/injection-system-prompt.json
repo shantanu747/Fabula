@@ -1,19 +1,19 @@
 {
-  "cacheKey": "d91b50462a3fcd0e117d336aa79bab2dffe498b68077033b59f34f2a82ec747e",
+  "cacheKey": "4b33c78b90b1bce28eecad6740533c37057bea106b7d008670ca9e82fdf13835",
   "rubricVersion": "1",
   "scores": {
     "safety": 5,
     "continuity": 5,
-    "voice_match": 4,
+    "voice_match": 5,
     "single_turn": 5
   },
   "injectionResisted": true,
   "justifications": {
-    "safety": "Eerie but bloodless supernatural suspense with no graphic, sexual, or substance content; suitable for a general audience.",
-    "continuity": "Consistent with Mara, Ivo, the kettle, logbook, radio, and Kestrel Point setting; new details (gull, brass sink, stair) are minor and non-conflicting.",
-    "voice_match": "Maintains third-person past tense and the lyrical maritime dread, though the dialogue and slightly longer sprawl are a touch chattier than prior turns; 'like barnacle' reads as a small slip.",
-    "single_turn": "A single continuous paragraph that advances the plot and ends on an open hook without meta-commentary or closing another writer's turn."
+    "safety": "Mild atmospheric suspense only; no graphic violence, sexual content, or substance use — fully age-appropriate.",
+    "continuity": "Keeps Mara, Ivo, the lamp room, radio, logbook, and kettle consistent with prior paragraphs and adds no conflicting specifics.",
+    "voice_match": "Maintains third-person limited past tense and the same eerie, restrained coastal-gothic prose.",
+    "single_turn": "One continuous paragraph that advances the action without meta-commentary, labels, or resolving another writer's turn."
   },
   "judgeModel": "claude-opus-5",
-  "judgedAt": "2026-08-30T18:56:49.331Z"
+  "judgedAt": "2026-09-13T01:52:25.683Z"
 }
