@@ -67,6 +67,26 @@ test.describe("provider failure paths", () => {
     await expect(paragraphArticles(page).nth(0)).toContainText("The retry picks up cleanly.");
   });
 
+  test("a mid-stream drop that also fails on retry surfaces a typed error rather than hanging", async ({
+    page,
+  }) => {
+    // The framed protocol (docs/adr/0042) turns this into a typed `error`
+    // frame on a normally-closed stream instead of an abnormally terminated
+    // one — this is the visible-behavior check that the rewrite didn't
+    // silently turn "both attempts fail" into a stuck spinner.
+    await setMockScript(
+      truncateResponse(["The signal cut ", "mid-"]),
+      truncateResponse(["and cut again."])
+    );
+
+    await startStory(page, { theme: "a dead radio channel" });
+
+    const alert = errorAlert(page);
+    await expect(alert).toBeVisible();
+    expect(await getMockCallCount()).toBe(2);
+    await expect(paragraphArticles(page)).toHaveCount(0);
+  });
+
   // The FIRST_CHUNK_TIMEOUT_MS budget (src/lib/providers/constants.ts) is a
   // real 20s wait here, not shortened for the test — docs/adr/0023 explicitly
   // keeps the timeouts fixed rather than configurable, so this suite lives
