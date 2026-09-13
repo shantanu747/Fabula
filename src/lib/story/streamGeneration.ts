@@ -1,6 +1,7 @@
 import type { InventedMetadata, StoryParagraph } from "@/lib/providers/types";
 import type { GenerationErrorKind } from "./types";
 import { SSEStreamParser, type DecodedFrame } from "@/lib/streaming/protocol";
+import { parseRetryAfterMs } from "./retry";
 
 export interface GenerateRequestBody {
   providerId: string;
@@ -20,11 +21,28 @@ export interface GenerationError {
   failedProviderId?: string;
   suggestedProviderId?: string;
   suggestedProviderName?: string;
+  /** Only present for a "rate-limited" error whose response carried a
+   *  parseable `Retry-After` (`src/lib/ratelimit/store.ts` always sends one;
+   *  `undefined` here means the header was missing or malformed, never that
+   *  the wait is zero). Milliseconds from now, not a raw header value —
+   *  `retry.ts`'s `parseRetryAfterMs` already resolved both the delay-seconds
+   *  and HTTP-date forms into one shape the UI can count down from directly. */
+  retryAfterMs?: number;
 }
 
 export interface StreamCallbacks {
   onChunk: (textSoFar: string) => void;
-  onDone: (finalText: string, metadata?: InventedMetadata) => void;
+  /** `persisted` mirrors the `done` frame's own field (docs/adr/0042) exactly
+   *  as sent — `false` for a guest turn too (nothing was ever attempted for
+   *  one), not just for a genuine mirror-write failure. The caller must gate
+   *  on whether it sent a `storyId` for this turn before treating `false` as
+   *  a save failure worth surfacing (docs/adr/0044-durable-writer-turns-and-
+   *  idempotent-creation.md) — this module has no way to make that
+   *  distinction itself, since a guest and a failed write are indistinguishable
+   *  on the wire by design (the field only ever means "is the mirror caught up
+   *  with this paragraph", which is trivially true — nothing to catch up —
+   *  when there's no mirror at all). */
+  onDone: (finalText: string, metadata: InventedMetadata | undefined, persisted: boolean) => void;
   onError: (error: GenerationError) => void;
 }
 
@@ -35,7 +53,7 @@ interface StreamState {
 }
 
 type ConsumeResult =
-  | { outcome: "done" }
+  | { outcome: "done"; persisted: boolean }
   | { outcome: "error"; error: GenerationError }
   /** The reader threw for a reason that isn't our own signal firing — a real
    *  network/transport break. The caller decides what to do next (attempt
@@ -87,10 +105,11 @@ async function consumeFrames(
           },
         };
       case "done":
-        // `persisted`/`position`/`storyId` are parsed by the frame decoder
-        // but not surfaced here — Plan 5 is what consumes them; this plan
-        // only makes them expressible on the wire (docs/adr/0042).
-        return { outcome: "done" };
+        // `position`/`storyId` are parsed by the frame decoder but not
+        // surfaced here — the caller already knows its own storyId, and
+        // position has no client-side use. `persisted` is what Plan 5 needs
+        // (docs/adr/0044-durable-writer-turns-and-idempotent-creation.md).
+        return { outcome: "done", persisted: event.data.persisted };
     }
   }
 
@@ -193,6 +212,9 @@ export async function streamGeneration(
     let failedProviderId: string | undefined;
     let suggestedProviderId: string | undefined;
     let suggestedProviderName: string | undefined;
+    // Read regardless of `kind` — cheap, and a malformed/absent header just
+    // yields `undefined` (parseRetryAfterMs's own contract), same as today.
+    const retryAfterMs = parseRetryAfterMs(response.headers.get("Retry-After"));
     try {
       const data = await response.json();
       if (typeof data?.error === "string") message = data.error;
@@ -203,7 +225,7 @@ export async function streamGeneration(
     } catch {
       // body wasn't JSON — keep the generic message and the status-derived kind
     }
-    onError({ kind, message, failedProviderId, suggestedProviderId, suggestedProviderName });
+    onError({ kind, message, failedProviderId, suggestedProviderId, suggestedProviderName, retryAfterMs });
     return;
   }
 
@@ -218,7 +240,7 @@ export async function streamGeneration(
 
   if (result.outcome === "aborted") return;
   if (result.outcome === "done") {
-    onDone(state.visibleText, state.metadata);
+    onDone(state.visibleText, state.metadata, result.persisted);
     return;
   }
   if (result.outcome === "error") {

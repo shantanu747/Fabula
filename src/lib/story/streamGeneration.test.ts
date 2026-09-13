@@ -63,16 +63,18 @@ interface Collected {
   chunks: string[];
   finalText?: string;
   metadata?: InventedMetadata;
-  error?: { kind: string; message: string };
+  persisted?: boolean;
+  error?: { kind: string; message: string; retryAfterMs?: number };
 }
 
 async function run(signal: AbortSignal = new AbortController().signal): Promise<Collected> {
   const collected: Collected = { chunks: [] };
   await streamGeneration(BODY, signal, {
     onChunk: (textSoFar) => collected.chunks.push(textSoFar),
-    onDone: (finalText, metadata) => {
+    onDone: (finalText, metadata, persisted) => {
       collected.finalText = finalText;
       collected.metadata = metadata;
+      collected.persisted = persisted;
     },
     onError: (error) => {
       collected.error = error;
@@ -103,6 +105,19 @@ describe("streamGeneration — framed protocol parsing", () => {
     expect(got.finalText).toBe("Once upon a time.");
     expect(got.metadata).toEqual(metadata);
     expect(got.chunks).toEqual(["Once ", "Once upon a time."]);
+    expect(got.persisted).toBe(false);
+  });
+
+  it("passes a persisted: true done frame straight through to onDone", async () => {
+    const events: StreamEvent[] = [
+      { event: "chunk", data: { text: "Once upon a time." } },
+      { event: "done", data: { persisted: true } },
+    ];
+    stubFetchWithFrames([encodeAll(events)]);
+
+    const got = await run();
+
+    expect(got.persisted).toBe(true);
   });
 
   it("reconstructs prose exactly for any split of the wire bytes, including mid-codepoint", async () => {
@@ -261,6 +276,30 @@ describe("streamGeneration — pre-stream error mapping (unchanged: still a plai
       suggestedProviderId: undefined,
       suggestedProviderName: undefined,
     });
+  });
+
+  it("carries the parsed Retry-After on a 429, in milliseconds", async () => {
+    vi.stubGlobal(
+      "fetch",
+      async () =>
+        new Response(JSON.stringify({ error: "slow down" }), {
+          status: 429,
+          headers: { "Content-Type": "application/json", "Retry-After": "5" },
+        })
+    );
+
+    const got = await run();
+
+    expect(got.error).toMatchObject({ kind: "rate-limited", retryAfterMs: 5000 });
+  });
+
+  it("leaves retryAfterMs undefined when the response carries no Retry-After header", async () => {
+    stubFetchWithFrames([], { status: 429, jsonBody: { error: "slow down" } });
+
+    const got = await run();
+
+    expect(got.error).toMatchObject({ kind: "rate-limited" });
+    expect(got.error?.retryAfterMs).toBeUndefined();
   });
 
   it("reports a network error when fetch itself throws", async () => {
