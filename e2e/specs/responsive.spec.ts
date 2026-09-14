@@ -27,6 +27,13 @@ const TAP_TARGET_SELECTOR = '.tap-target, button, [role="button"], select, input
 
 test.describe("responsive layout", () => {
   test("every page fits its viewport with no horizontal overflow", async ({ browser }) => {
+    // seedRouteCheckpoints does several signups and generations before this
+    // test's own assertions even start (same reasoning as visual.spec.ts's
+    // identical override) — comfortable margin locally, tight enough on a
+    // slower CI runner that the account-lifecycle work's extra verify-and-
+    // refresh round trip for one checkpoint's signup was enough to exceed
+    // the default 30s test timeout there specifically.
+    test.setTimeout(60_000);
     const { checkpoints, cleanup } = await seedRouteCheckpoints(browser);
     try {
       for (const { name, page } of checkpoints) {
@@ -42,6 +49,7 @@ test.describe("responsive layout", () => {
 
   test("every control has a real 44px tap target at mobile width", async ({ browser }, testInfo) => {
     test.skip(testInfo.project.name !== "mobile", "mobile-only check");
+    test.setTimeout(60_000); // see the overflow test above
 
     const { checkpoints, cleanup } = await seedRouteCheckpoints(browser);
     try {
