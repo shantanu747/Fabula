@@ -17,7 +17,7 @@ test.beforeEach(async () => {
   await resetMockScript();
 });
 
-test("a guest is rate-limited past GENERATE_GUEST's capacity, and the UI shows it with no Try again", async ({
+test("a guest is rate-limited past GENERATE_GUEST's capacity, and the UI shows a live countdown, not a plain Try again", async ({
   page,
   request,
 }) => {
@@ -39,5 +39,24 @@ test("a guest is rate-limited past GENERATE_GUEST's capacity, and the UI shows i
   await startStory(page);
   const alert = errorAlert(page);
   await expect(alert).toContainText("Too many stories from this connection");
-  await expect(alert.getByRole("button", { name: "Try again" })).toHaveCount(0);
+
+  // A live countdown from the server's own Retry-After
+  // (docs/adr/0044-durable-writer-turns-and-idempotent-creation.md) — disabled
+  // while waiting, unlike every other error kind's plain, always-enabled
+  // "Try again" (which for a rate limit would just fail again immediately).
+  // GENERATE_GUEST's ~30s refill is too long to sit through in full here;
+  // this proves it's live (ticking down), not that it reaches zero — retry.ts's
+  // own unit tests already prove the countdown-to-zero mechanics.
+  const retryButton = alert.getByRole("button", { name: /Try again/ });
+  await expect(retryButton).toBeDisabled();
+  const initialText = await retryButton.textContent();
+  expect(initialText).toMatch(/^Try again in \d+s$/);
+
+  await page.waitForTimeout(2_000);
+
+  const laterText = await retryButton.textContent();
+  expect(laterText).toMatch(/^Try again in \d+s$/);
+  const initialSeconds = Number(initialText?.match(/(\d+)/)?.[1]);
+  const laterSeconds = Number(laterText?.match(/(\d+)/)?.[1]);
+  expect(laterSeconds).toBeLessThan(initialSeconds);
 });
