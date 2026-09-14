@@ -5,8 +5,11 @@ import { stories } from "@/lib/db/schema";
 import { decodeCursor, getLibraryPage } from "@/lib/db/feedAndLibrary";
 import { isUniqueViolation } from "@/lib/db/paragraphs";
 import { PRIVATE_NO_STORE } from "@/lib/http/cacheControl";
+import { readJsonBody } from "@/lib/http/readJsonBody";
 import { areValidHints, isValidTargetLength } from "@/lib/story/validation";
 import { guardStoriesRead, guardStoriesWrite } from "@/lib/ratelimit/guard";
+import { assertSameOrigin } from "@/lib/security/assertSameOrigin";
+import { assertSessionCurrent } from "@/lib/auth/tokenVersion";
 
 interface CreateStoryBody {
   theme?: string;
@@ -42,22 +45,24 @@ function readIdempotencyKey(request: Request): string | undefined {
 }
 
 export async function POST(request: Request) {
+  const originRejection = assertSameOrigin(request);
+  if (originRejection) return originRejection;
+
   const session = await auth();
   if (!session?.user?.id) {
     return Response.json({ error: "Not authenticated" }, { status: 401 });
   }
+  const revoked = await assertSessionCurrent(session.user);
+  if (revoked) return revoked;
   const limited = await guardStoriesWrite(session.user.id);
   if (limited) return limited;
 
-  let body: unknown;
-  try {
-    body = await request.json();
-  } catch {
-    return Response.json({ error: "Invalid JSON body" }, { status: 400 });
-  }
-  if (!isValidBody(body)) {
+  const parsed = await readJsonBody(request);
+  if (!parsed.ok) return parsed.response;
+  if (!isValidBody(parsed.body)) {
     return Response.json({ error: "Invalid request body" }, { status: 400 });
   }
+  const body = parsed.body;
 
   const idempotencyKey = readIdempotencyKey(request);
   const db = getDb();

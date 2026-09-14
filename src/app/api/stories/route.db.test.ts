@@ -16,7 +16,7 @@ import { sessionForUser, setTestSession } from "@/test/session";
 function post(body: Record<string, unknown>, headers: Record<string, string> = {}): Request {
   return new Request("http://localhost/api/stories", {
     method: "POST",
-    headers: { "Content-Type": "application/json", ...headers },
+    headers: { "Content-Type": "application/json", Origin: "http://localhost", ...headers },
     body: JSON.stringify({ targetLength: 10, selectedProviderId: "anthropic", ...body }),
   });
 }
