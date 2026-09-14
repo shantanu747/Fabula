@@ -6,8 +6,22 @@ import { passwordResetTokens } from "@/lib/db/schema";
 const TOKEN_BYTES = 32;
 const EXPIRY_MS = 60 * 60 * 1000;
 
+// CodeQL's js/insufficient-password-hash flags the line below: SHA-256 is
+// indeed the wrong tool for a *password*, which has low, guessable entropy
+// and needs a slow, salted KDF (bcrypt/scrypt/argon2) to resist
+// brute-forcing. That query's heuristic fires here only because it traces
+// the call back through createPasswordResetToken's name, not through what's
+// actually being hashed — `rawToken` is `randomBytes(32)` (256 bits of real
+// entropy, docs/adr/0046), never a user-chosen secret. A fast, unsalted hash
+// is the textbook-correct choice for exactly this shape (Django, Rails, and
+// Auth.js's own verification-token pattern all do the same): the value is
+// unguessable regardless of hash speed, and a slow KDF would add nothing
+// except being slower to look up on every request. See
+// verifyAndConsumePasswordResetToken below for the actual security property
+// this token relies on (single-use, time-limited, looked up by exact hash
+// match).
 function hashToken(rawToken: string): string {
-  return createHash("sha256").update(rawToken).digest("hex");
+  return createHash("sha256").update(rawToken).digest("hex"); // lgtm[js/insufficient-password-hash]
 }
 
 /**
