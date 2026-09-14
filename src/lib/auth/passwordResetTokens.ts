@@ -19,9 +19,12 @@ const EXPIRY_MS = 60 * 60 * 1000;
 // except being slower to look up on every request. See
 // verifyAndConsumePasswordResetToken below for the actual security property
 // this token relies on (single-use, time-limited, looked up by exact hash
-// match).
+// match). Dismissed as a false positive directly in Code Scanning
+// (github.com/shantanu747/Fabula/security/code-scanning/3) — an inline
+// `codeql[js/insufficient-password-hash]` suppression comment, placed
+// correctly per GitHub's own docs, did not register against this CLI
+// version's javascript-typescript extractor.
 function hashToken(rawToken: string): string {
-  // codeql[js/insufficient-password-hash]
   return createHash("sha256").update(rawToken).digest("hex");
 }
 
