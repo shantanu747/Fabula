@@ -141,12 +141,19 @@ describe("GET /api/health — providers", () => {
 });
 
 describe("GET /api/health — response shape", () => {
-  it("never caches, and reports a version string", async () => {
+  it("never caches", async () => {
     const response = await GET(healthRequest());
-
     expect(response.headers.get("Cache-Control")).toBe("no-store");
+  });
+
+  // docs/adr/0048: commit SHA and process uptime are free reconnaissance for
+  // an unauthenticated caller and neither is needed to answer "is this up" —
+  // guarding against a regression that quietly reintroduces either.
+  it("never reports a commit SHA or process uptime", async () => {
+    const response = await GET(healthRequest());
     const body = await response.json();
-    expect(typeof body.version).toBe("string");
-    expect(typeof body.uptimeSeconds).toBe("number");
+
+    expect(body.version).toBeUndefined();
+    expect(body.uptimeSeconds).toBeUndefined();
   });
 });

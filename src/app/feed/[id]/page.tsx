@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { asc, eq } from "drizzle-orm";
+import { auth } from "@/auth";
 import { getDb } from "@/lib/db/client";
 import { stories, storyParagraphs, users } from "@/lib/db/schema";
 import { getProviderList } from "@/lib/providers/list";
@@ -17,6 +18,14 @@ const DROP_CAP =
   "first-letter:float-left first-letter:pr-[10px] first-letter:pt-1 first-letter:font-heading first-letter:text-[62px] first-letter:font-normal first-letter:leading-[0.82] first-letter:text-accent";
 
 export default async function SharedStory({ params }: PageProps<"/feed/[id]">) {
+  // Belt-and-suspenders — proxy.ts already redirects unauthenticated requests
+  // to every /feed/* path (the shared feed is logged-in-Writers-only by
+  // design, docs/PRD.md §3, not a step toward public sharing). Every other
+  // story-touching surface re-checks independently (ADR 0009); this one
+  // previously relied solely on the proxy layer.
+  const session = await auth();
+  if (!session?.user?.id) return null;
+
   const { id } = await params;
 
   const db = getDb();

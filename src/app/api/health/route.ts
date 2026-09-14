@@ -5,8 +5,6 @@ import { PROVIDERS } from "@/lib/providers/registry";
 
 export const dynamic = "force-dynamic";
 
-const startedAt = Date.now();
-
 /** Provider id -> the env var its adapter reads its API key from. */
 const PROVIDER_KEY_ENV: Record<string, string> = {
   anthropic: "ANTHROPIC_API_KEY",
@@ -60,13 +58,15 @@ export async function GET(request: Request) {
 
   const status = database === "unreachable" ? "degraded" : "ok";
 
+  // Deliberately no commit SHA and no process uptime here (docs/adr/0048) —
+  // both are free reconnaissance for an unauthenticated caller (exact
+  // deployed version for CVE-matching, restart cadence for timing an
+  // attack) and neither is needed for what this endpoint exists to answer:
+  // is the app up, and can it reach its dependencies. The boolean
+  // key-presence checks stay, and this stays unauthenticated either way —
+  // it must work when auth itself is broken (docs/adr/0022).
   return Response.json(
-    {
-      status,
-      version: process.env.VERCEL_GIT_COMMIT_SHA ?? "dev",
-      uptimeSeconds: Math.floor((Date.now() - startedAt) / 1000),
-      checks: { database, providers },
-    },
+    { status, checks: { database, providers } },
     { status: status === "ok" ? 200 : 503, headers: { "Cache-Control": "no-store" } }
   );
 }
