@@ -21,6 +21,13 @@ export default async function Feed() {
   const { rows, nextCursor } = await getCachedFeedPage0(getDb());
 
   return (
+    // AppHeader stays inline here (not hoisted to a segment layout.tsx) so it
+    // matches feed/[id]/page.tsx's treatment — both live under feed/, and a
+    // layout.tsx at that level would wrap both routes, but only feed/[id]
+    // has a structural reason (the print stylesheet) to need its header as a
+    // literal sibling rather than an ancestor's. Keeping the same pattern for
+    // both avoids one being hoisted and the other not for reasons that have
+    // nothing to do with this route itself.
     <div className="flex flex-1 flex-col bg-background">
       <AppHeader />
       <div className="flex w-full flex-col items-center px-4 sm:px-6">
