@@ -16,6 +16,7 @@ export const LOG_EVENTS = {
   REGISTER_REJECTED: "register.rejected",
   ADMISSION_REJECTED: "admission.rejected",
   BUDGET_REJECTED: "budget.rejected",
+  BREAKER_REJECTED: "breaker.rejected",
 } as const;
 
 export type LogEvent = (typeof LOG_EVENTS)[keyof typeof LOG_EVENTS];
