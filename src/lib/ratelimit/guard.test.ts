@@ -6,11 +6,15 @@ import {
   guardFeedRead,
   guardGenerate,
   guardHealth,
+  guardLogin,
+  guardPasswordResetComplete,
+  guardPasswordResetRequest,
   guardRegister,
   guardReport,
   guardResume,
   guardStoriesRead,
   guardStoriesWrite,
+  guardVerifyRequest,
 } from "./guard";
 
 // This file's fake-database tests assert on the Postgres path specifically
@@ -57,6 +61,10 @@ describe("with no database configured", () => {
     ["a stories write", () => guardStoriesWrite("user-1")],
     ["a feed read", () => guardFeedRead("user-1")],
     ["a report", () => guardReport("user-1")],
+    ["a login", () => guardLogin(request(), "writer@example.com")],
+    ["a verify request", () => guardVerifyRequest("user-1")],
+    ["a password reset request", () => guardPasswordResetRequest(request(), "writer@example.com")],
+    ["a password reset completion", () => guardPasswordResetComplete(request())],
   ])("allows %s and says so", async (_label, guard) => {
     // Guest writing has never required a database (docs/adr/0009), and rate
     // limiting must not quietly make Postgres a hard requirement for running
@@ -117,6 +125,10 @@ describe("when the bucket query fails", () => {
     ["a stories write", () => guardStoriesWrite("user-1")],
     ["a feed read", () => guardFeedRead("user-1")],
     ["a report", () => guardReport("user-1")],
+    ["a login", () => guardLogin(request(), "writer@example.com")],
+    ["a verify request", () => guardVerifyRequest("user-1")],
+    ["a password reset request", () => guardPasswordResetRequest(request(), "writer@example.com")],
+    ["a password reset completion", () => guardPasswordResetComplete(request())],
   ])("denies %s rather than letting it through", async (_label, guard) => {
     installFailingDb();
     vi.spyOn(console, "error").mockImplementation(() => {});
