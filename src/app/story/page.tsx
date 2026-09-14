@@ -6,6 +6,7 @@ import { useSearchParams } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { useStory } from "@/lib/story/StoryContext";
 import { isWritersTurn } from "@/lib/story/turn";
+import type { SaveState } from "@/lib/story/types";
 import { AppHeader, AuthLinks, NAV_LINK } from "@/components/AppHeader";
 import { splitDisplayName } from "@/lib/ui/providerName";
 import { stageIndex } from "@/lib/ui/stageIndex";
@@ -74,6 +75,80 @@ function ArcRail({ count, target, ratio }: { count: number; target: number; rati
   );
 }
 
+function saveStatusLabel(state: SaveState): string | null {
+  if (state === "saving") return "Saving…";
+  if (state === "saved") return "Saved";
+  if (state === "error") return "Not saved";
+  return null; // "unsaved" — nothing attempted yet, nothing to report
+}
+
+/** The Writer must always be able to tell whether their story is saved
+ *  (docs/adr/0044-durable-writer-turns-and-idempotent-creation.md) — silent
+ *  unsaved state is the bug this exists to close. An error escapes the
+ *  otherwise-muted styling and offers a retry; "saving"/"saved" stay quiet. */
+function SaveStatusBadge({ saveState, onRetry }: { saveState: SaveState; onRetry: () => void }) {
+  const label = saveStatusLabel(saveState);
+  if (!label) return null;
+  if (saveState === "error") {
+    return (
+      <span className="inline-flex items-center gap-2 text-[12px]">
+        <span role="alert" className="text-foreground">
+          {label}
+        </span>
+        <button
+          type="button"
+          onClick={onRetry}
+          className="btn btn-text tap-target underline decoration-muted/50 underline-offset-2"
+        >
+          Retry
+        </button>
+      </span>
+    );
+  }
+  return <span className="text-[12px] italic text-muted">{label}</span>;
+}
+
+/** Counts down from a `Retry-After`-derived millisecond deadline, in whole
+ *  seconds, re-arming whenever a fresh `retryAfterMs` arrives (a new 429).
+ *  `undefined` means no parseable Retry-After was sent — the caller falls
+ *  back to an immediately-enabled retry rather than blocking on nothing. */
+function useCountdownSeconds(retryAfterMs: number | undefined): number | undefined {
+  const [remainingMs, setRemainingMs] = useState(retryAfterMs);
+  // The "adjust state when a prop changes" pattern (react.dev), not a reset
+  // inside the effect below — this compares against the previous render
+  // rather than calling setState synchronously in an effect body.
+  const [trackedRetryAfterMs, setTrackedRetryAfterMs] = useState(retryAfterMs);
+  if (retryAfterMs !== trackedRetryAfterMs) {
+    setTrackedRetryAfterMs(retryAfterMs);
+    setRemainingMs(retryAfterMs);
+  }
+
+  useEffect(() => {
+    if (retryAfterMs === undefined) return;
+    const deadline = Date.now() + retryAfterMs;
+    const interval = setInterval(() => {
+      setRemainingMs(Math.max(0, deadline - Date.now()));
+    }, 250);
+    return () => clearInterval(interval);
+  }, [retryAfterMs]);
+
+  return remainingMs === undefined ? undefined : Math.ceil(remainingMs / 1000);
+}
+
+/** The 429 banner's retry: disabled and counting down while the server's own
+ *  `Retry-After` hasn't yet elapsed, re-enabling itself the moment it does —
+ *  rather than the plain, always-enabled "Try again" every other error kind
+ *  gets, which for a rate limit would just fail again immediately. */
+function RateLimitRetryButton({ retryAfterMs, onRetry }: { retryAfterMs: number | undefined; onRetry: () => void }) {
+  const secondsLeft = useCountdownSeconds(retryAfterMs);
+  const waiting = secondsLeft !== undefined && secondsLeft > 0;
+  return (
+    <button type="button" onClick={onRetry} disabled={waiting} className="btn btn-secondary btn-sm min-h-11">
+      {waiting ? `Try again in ${secondsLeft}s` : "Try again"}
+    </button>
+  );
+}
+
 function StoryPage() {
   const {
     paragraphs,
@@ -86,30 +161,48 @@ function StoryPage() {
     generation,
     storyId,
     isShared,
+    saveState,
+    shareError,
     setSelectedProviderId,
     setShared,
     submitAndContinue,
     generateNext,
     switchProviderAndRetry,
+    retrySave,
     resetStory,
     hydrateStory,
   } = useStory();
   const { status: authStatus } = useSession();
   const [draft, setDraft] = useState("");
+  const [hydrateError, setHydrateError] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const searchParams = useSearchParams();
   const requestedStoryId = searchParams.get("storyId");
+  // Adjust-during-render (react.dev), not a reset inside the effect below: a
+  // fresh `requestedStoryId` clears any error left over from the last one,
+  // compared against the previous render rather than set synchronously in an
+  // effect body.
+  const [trackedRequestedStoryId, setTrackedRequestedStoryId] = useState(requestedStoryId);
+  if (requestedStoryId !== trackedRequestedStoryId) {
+    setTrackedRequestedStoryId(requestedStoryId);
+    setHydrateError(false);
+  }
 
   // Resuming a saved story from /library: hydrate the whole client state from the
   // server once, on mount / when the requested id changes. Guests never hit this —
   // /library is behind the sign-in gate, so a storyId in the URL implies a session.
+  //
+  // A failed hydrate must not leave the story silently empty
+  // (docs/adr/0044-durable-writer-turns-and-idempotent-creation.md) — a Writer
+  // resuming a story they know has content must see that loading it failed,
+  // not a blank composer that looks like a brand new story.
   useEffect(() => {
     if (!requestedStoryId || requestedStoryId === storyId) return;
     let cancelled = false;
     fetch(`/api/stories/${requestedStoryId}`)
-      .then((res) => (res.ok ? res.json() : null))
+      .then((res) => (res.ok ? res.json() : Promise.reject(new Error(`Failed to load story (${res.status})`))))
       .then((data) => {
-        if (cancelled || !data) return;
+        if (cancelled) return;
         hydrateStory({
           theme: data.theme,
           characters: data.characters,
@@ -121,7 +214,14 @@ function StoryPage() {
           generation: { kind: "idle" },
           storyId: data.id,
           isShared: data.isShared,
+          // Known-good the moment it's loaded from the server — there is
+          // nothing yet to save that hasn't already been saved.
+          saveState: "saved",
+          shareError: false,
         });
+      })
+      .catch(() => {
+        if (!cancelled) setHydrateError(true);
       });
     return () => {
       cancelled = true;
@@ -174,29 +274,49 @@ function StoryPage() {
   // Save is the header's promise to a Writer, not new state. For a guest,
   // Save is sign-in — persistence is automatic once signed in (docs/adr/0009),
   // and the guest's paragraphs survive the client-side navigation.
+  //
+  // Two renderings, not one shared element: the header row is space-
+  // constrained (mark, divider, theme, count, Saved, Share, New story, My
+  // library, Feed, Sign out — the theme already truncates at tablet widths),
+  // so a quiet "Saving…"/"Saved" stays hidden below `lg`, the lowest-value
+  // item to drop first. A save *error* escapes that treatment even in the
+  // header — it matters more than the space it costs. The phone nav below
+  // has no such constraint and always shows the current status; previously
+  // this reused the exact same (header-only) element, which is why it never
+  // actually appeared on a phone despite being included there.
   const saveAction = isAuthenticated ? (
-    // Hidden below `lg`: the canvas header holds mark, divider, theme, count,
-    // Saved, Share, New story, My library, Feed, Sign out, and the theme
-    // already truncates at tablet widths — "Saved" is the lowest-value item
-    // to drop first (no board covers this width).
-    storyId ? <span className="hidden text-[12px] italic text-muted lg:inline">Saved</span> : null
+    saveState === "error" ? (
+      <SaveStatusBadge saveState={saveState} onRetry={retrySave} />
+    ) : (
+      <span className="hidden lg:inline">
+        <SaveStatusBadge saveState={saveState} onRetry={retrySave} />
+      </span>
+    )
   ) : (
     <Link href="/login" className={NAV_LINK}>
       Sign in to save
     </Link>
   );
+  const mobileSaveAction = isAuthenticated ? <SaveStatusBadge saveState={saveState} onRetry={retrySave} /> : null;
   // Share toggles isShared directly from the canvas (docs/adr/0039) — same
   // control, copy, and optimistic-then-PATCH behavior as /library's
   // ShareToggle. Only meaningful once the story is persisted.
   const shareAction =
     isAuthenticated && storyId ? (
-      <button
-        type="button"
-        onClick={() => setShared(!isShared)}
-        className={isShared ? "btn btn-primary btn-xs tap-target" : "btn btn-secondary btn-xs tap-target"}
-      >
-        {isShared ? "Shared to feed" : "Share to feed"}
-      </button>
+      <span className="inline-flex items-center gap-2">
+        <button
+          type="button"
+          onClick={() => setShared(!isShared)}
+          className={isShared ? "btn btn-primary btn-xs tap-target" : "btn btn-secondary btn-xs tap-target"}
+        >
+          {isShared ? "Shared to feed" : "Share to feed"}
+        </button>
+        {shareError && (
+          <span role="alert" className="text-[11.5px] italic text-muted">
+            Couldn&apos;t update sharing.
+          </span>
+        )}
+      </span>
     ) : null;
   const newStoryAction = (
     <Link href="/" onClick={resetStory} className="btn btn-primary btn-xs tap-target">
@@ -223,6 +343,27 @@ function StoryPage() {
       <main className="mx-auto w-full max-w-[800px] px-[22px] pb-[46px] pt-[26px] md:px-6 md:pt-[56px] lg:grid lg:grid-cols-[1fr_96px] lg:px-0">
         <div>
           <h1 className="sr-only">Your story</h1>
+
+          {hydrateError && (
+            // role="alert": this replaces content the Writer specifically
+            // navigated here to see — a silently empty canvas that looks like
+            // a fresh, unstarted story would be the worse failure mode.
+            <div
+              role="alert"
+              className="mb-6 border-y border-border py-4 text-[14px] leading-[1.7] text-foreground md:mb-[30px]"
+            >
+              <p>Couldn&apos;t load this story. This is usually temporary.</p>
+              <div className="mt-4">
+                <button
+                  type="button"
+                  onClick={() => window.location.reload()}
+                  className="btn btn-secondary btn-sm min-h-11"
+                >
+                  Try again
+                </button>
+              </div>
+            </div>
+          )}
 
           {/*
             role="log" marks this as content that grows by appending, so a screen
@@ -284,13 +425,19 @@ function StoryPage() {
               className="mt-6 border-y border-border py-4 text-[14px] leading-[1.7] text-foreground md:ml-[112px] md:mt-[30px]"
             >
               <p>{generation.message}</p>
-              {/*
-                No retry button for a turn violation (nothing to retry) or a rate
-                limit (retrying now just fails again — the message says when).
-              */}
-              {generation.errorKind !== "turn-violation" && generation.errorKind !== "rate-limited" && (
+              {/* No retry button for a turn violation — nothing to retry. A rate
+                  limit gets one too, now (docs/adr/0044-durable-writer-turns-and-
+                  idempotent-creation.md) — disabled and counting down from the
+                  server's own Retry-After rather than the plain "Try again"
+                  every other kind gets, which would just fail again immediately. */}
+              {generation.errorKind !== "turn-violation" && (
                 <div className="mt-4 flex flex-wrap gap-3">
-                  {generation.errorKind === "provider-unavailable" && generation.suggestedProviderId ? (
+                  {generation.errorKind === "rate-limited" ? (
+                    <RateLimitRetryButton
+                      retryAfterMs={generation.retryAfterMs}
+                      onRetry={() => generateNext()}
+                    />
+                  ) : generation.errorKind === "provider-unavailable" && generation.suggestedProviderId ? (
                     <>
                       <button
                         type="button"
@@ -418,7 +565,7 @@ function StoryPage() {
 
           {/* On a phone the header carries only mark, theme and count; the rest lands here. */}
           <nav aria-label="Story actions" className="mt-8 flex flex-wrap items-center gap-x-5 gap-y-2 border-t border-border pt-4 md:hidden">
-            {saveAction}
+            {mobileSaveAction}
             {shareAction}
             {newStoryAction}
             <AuthLinks guestLinks={false} />

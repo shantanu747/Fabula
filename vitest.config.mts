@@ -58,6 +58,12 @@ export default defineConfig({
         "src/lib/kv/**": { statements: 100, branches: 100, functions: 100, lines: 100 },
         "src/lib/admission/**": { statements: 100, branches: 100, functions: 100, lines: 100 },
         "src/lib/budget/**": { statements: 100, branches: 100, functions: 100, lines: 100 },
+        // New in v4 Plan 5 (docs/adr/0045-provider-circuit-breaker.md): same
+        // tier as admission/budget above — a wrong fail-open/fail-closed
+        // branch here is either a permanently-tripped breaker refusing a
+        // healthy provider, or a broken probe-claim letting an unbounded
+        // thundering herd through on every cooldown tick.
+        "src/lib/providers/circuitBreaker.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
         // New in v4 Plan 4 (docs/adr/0042, docs/adr/0043): the framed wire
         // protocol and the resume buffer. Same tier as kv/admission/budget —
         // protocol.ts is pure and easy to hold at 100% (the plan's own

@@ -43,6 +43,13 @@
       "when": 1789144005902,
       "tag": "0005_denormalized_counters_and_cache_columns",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1789330963834,
+      "tag": "0006_add_story_idempotency_key",
+      "breakpoints": true
     }
   ]
 }

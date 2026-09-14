@@ -68,7 +68,12 @@ export default async function SharedStory({ params }: PageProps<"/feed/[id]">) {
   return (
     // print-shared-story scopes globals.css's print stylesheet — a shared story
     // reads as a printed piece (board 1e); the nav header, footer actions and
-    // Report button are chrome, not part of it.
+    // Report button are chrome, not part of it. Kept as a self-contained header
+    // (not hoisted to a shared layout.tsx the way feed/'s list view and
+    // library/ are) because that print rule depends on <header> being this
+    // div's own direct child (`.print-shared-story > header` in globals.css) —
+    // hoisting would put AppHeader in a parent layout instead, breaking that
+    // selector for a route this plan's own scope doesn't require touching.
     <div className="print-shared-story flex flex-1 flex-col bg-background">
       <AppHeader />
 
