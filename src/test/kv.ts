@@ -201,3 +201,23 @@ export function createFakeResumeKv(): Redis {
     },
   } as unknown as Redis;
 }
+
+/**
+ * A get/set/del stand-in for the tokenVersion cache
+ * (`src/lib/auth/tokenVersion.ts`), which needs `del` (an invalidation on
+ * every bump) that none of the other fakes above do — otherwise the same
+ * plain-map shape as `createFakeResumeKv`. TTL (the `{ ex }` option on
+ * `set`) is accepted and ignored, same convention as the other fakes here.
+ */
+export function createFakeTokenVersionKv(): Redis {
+  const store = new Map<string, number>();
+
+  return {
+    get: async (key: string) => (store.has(key) ? store.get(key)! : null),
+    set: async (key: string, value: number) => {
+      store.set(key, value);
+      return "OK";
+    },
+    del: async (key: string) => (store.delete(key) ? 1 : 0),
+  } as unknown as Redis;
+}

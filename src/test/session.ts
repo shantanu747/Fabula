@@ -19,10 +19,20 @@ export function getTestSession(): Session | null {
   return current;
 }
 
-/** Builds the minimal session shape the route handlers actually read. */
-export function sessionForUser(userId: string): Session {
+/**
+ * Builds the minimal session shape the route handlers actually read.
+ * `tokenVersion: 0` matches `users.tokenVersion`'s own schema default, so a
+ * plain `createUser()` + `sessionForUser(user.id)` pair is "current" against
+ * `assertSessionCurrent` out of the box; `verified: true` likewise defaults
+ * every test session to "a normal, already-verified Writer" so only specs
+ * about the verification gate itself need to override it.
+ */
+export function sessionForUser(
+  userId: string,
+  overrides: Partial<{ tokenVersion: number; verified: boolean; email: string }> = {}
+): Session {
   return {
-    user: { id: userId },
+    user: { id: userId, tokenVersion: 0, verified: true, ...overrides },
     expires: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
   } as Session;
 }

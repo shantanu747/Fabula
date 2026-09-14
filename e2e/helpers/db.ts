@@ -43,9 +43,22 @@ export async function seedSharedStories(email: string, count: number): Promise<v
   }
 }
 
+/**
+ * Marks an account verified directly, bypassing the email-click flow — for
+ * specs where verification itself isn't what's under test (sharing,
+ * reporting, pagination), which would otherwise all need a fresh account to
+ * click through /verify just to reach the behavior they actually care about.
+ * docs/adr/0046's own verify-then-share path is covered end to end by
+ * account-lifecycle.spec.ts instead.
+ */
+export async function verifyEmail(email: string): Promise<void> {
+  const result = await pool.query(`UPDATE "user" SET "emailVerified" = now() WHERE "email" = $1`, [email]);
+  if (result.rowCount === 0) throw new Error(`verifyEmail: no user found for ${email}`);
+}
+
 export async function resetDatabase(): Promise<void> {
   await pool.query(
-    `TRUNCATE TABLE "story_report", "story_paragraph", "story", "rate_limit_bucket", "session", "account", "user" CASCADE`
+    `TRUNCATE TABLE "story_report", "story_paragraph", "story", "rate_limit_bucket", "session", "account", "verificationToken", "password_reset_token", "user" CASCADE`
   );
 
   // The same trap, in Redis (docs/adr/0035): admission/budget/rate-limit state

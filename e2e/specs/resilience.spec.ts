@@ -1,7 +1,7 @@
 import { test, expect } from "@playwright/test";
 import { resetDatabase } from "../helpers/db";
 import { resetMockScript, setMockScript, streamResponse } from "../helpers/mock";
-import { signUp, uniqueEmail } from "../helpers/auth";
+import { signUp, signUpAndVerify, uniqueEmail } from "../helpers/auth";
 import { paragraphArticles, startStory, waitForAiParagraph } from "../helpers/story";
 
 // docs/adr/0044-durable-writer-turns-and-idempotent-creation.md.
@@ -81,7 +81,7 @@ test("a story-creation failure surfaces as an unsaved indicator, and Retry recov
 });
 
 test("a failed report never renders as success", async ({ page }) => {
-  await signUp(page, uniqueEmail(), { name: "Writer A" });
+  await signUpAndVerify(page, uniqueEmail(), { name: "Writer A" });
   await setMockScript(streamResponse(["A story to (unsuccessfully) report."]));
   await startStory(page, { theme: "a dispute nobody can resolve" });
   await waitForAiParagraph(page, 1);
@@ -111,7 +111,7 @@ test("a failed report never renders as success", async ({ page }) => {
 });
 
 test("a failed share toggle reverts and says so, from the story canvas", async ({ page }) => {
-  await signUp(page, uniqueEmail());
+  await signUpAndVerify(page, uniqueEmail());
   await setMockScript(streamResponse(["A story that fails to share."]));
   await startStory(page, { theme: "a share that will not stick" });
   await waitForAiParagraph(page, 1);

@@ -10,6 +10,7 @@ import {
   truncateResponse,
 } from "../helpers/mock";
 import { errorAlert, paragraphArticles, startStory, waitForAiParagraph } from "../helpers/story";
+import { BASE_URL } from "../constants";
 
 test.beforeEach(async () => {
   await resetDatabase();
@@ -24,6 +25,10 @@ test.describe("provider failure paths", () => {
     await setMockScript(errorResponse(500, "mock provider exploded"));
 
     const response = await request.post("/api/generate", {
+      // Origin set explicitly — APIRequestContext doesn't add one the way a
+      // real browser fetch() does, and assertSameOrigin (docs/adr/0048)
+      // requires it.
+      headers: { Origin: BASE_URL },
       data: { providerId: "anthropic", storySoFar: [] },
     });
     expect(response.status()).toBe(502);

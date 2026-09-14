@@ -1,8 +1,9 @@
 import { test, expect } from "@playwright/test";
 import { resetDatabase } from "../helpers/db";
 import { resetMockScript, setMockScript, streamResponse } from "../helpers/mock";
-import { signUp, uniqueEmail } from "../helpers/auth";
+import { signUp, signUpAndVerify, uniqueEmail } from "../helpers/auth";
 import { startStory, waitForAiParagraph } from "../helpers/story";
+import { BASE_URL } from "../constants";
 
 // PRD §8 criterion 5.
 
@@ -12,7 +13,7 @@ test.beforeEach(async () => {
 });
 
 test("reporting a shared story succeeds once and is a no-op on a repeat report", async ({ page, browser }) => {
-  await signUp(page, uniqueEmail(), { name: "Writer A" });
+  await signUpAndVerify(page, uniqueEmail(), { name: "Writer A" });
   await setMockScript(streamResponse(["A story worth reporting, allegedly."]));
   await startStory(page, { theme: "a dispute over a fence line" });
   await waitForAiParagraph(page, 1);
@@ -37,8 +38,12 @@ test("reporting a shared story succeeds once and is a no-op on a repeat report",
   // idempotent (see src/app/api/stories/[id]/report/route.ts). Driven at the
   // API level, reusing pageB's session cookie, since the UI's ReportButton
   // unmounts its own button on success and offers no way to click it twice.
+  // Origin set explicitly — APIRequestContext doesn't add one the way a real
+  // browser fetch() does, and assertSameOrigin (docs/adr/0048) requires it.
   const storyId = pageB.url().split("/feed/")[1];
-  const secondReport = await pageB.request.post(`/api/stories/${storyId}/report`);
+  const secondReport = await pageB.request.post(`/api/stories/${storyId}/report`, {
+    headers: { Origin: BASE_URL },
+  });
   expect(secondReport.status()).toBe(200);
   const body = await secondReport.json();
   expect(body.ok).toBe(true);

@@ -1,6 +1,6 @@
 import type { Browser, BrowserContext, Page } from "@playwright/test";
 import { expect } from "@playwright/test";
-import { signUp, uniqueEmail } from "./auth";
+import { signUp, signUpAndVerify, uniqueEmail } from "./auth";
 import { errorResponse, resetMockScript, setMockScript, streamResponse } from "./mock";
 import { errorAlert, goToStartStep, startStory, waitForAiParagraph } from "./story";
 
@@ -110,7 +110,7 @@ export async function seedRouteCheckpoints(browser: Browser): Promise<{
   // Writer A owns a library entry and shares it; Writer B sees it in the feed.
   await setMockScript(streamResponse(["A shared beginning, ready to scan."]));
   const library = await newPage();
-  await signUp(library, uniqueEmail(), { name: "Writer A" });
+  await signUpAndVerify(library, uniqueEmail(), { name: "Writer A" });
   await startStory(library, { theme: "a shared story for scanning" });
   await waitForAiParagraph(library, 1);
   await library.getByRole("link", { name: "My library" }).click();

@@ -17,6 +17,11 @@ export const LOG_EVENTS = {
   ADMISSION_REJECTED: "admission.rejected",
   BUDGET_REJECTED: "budget.rejected",
   BREAKER_REJECTED: "breaker.rejected",
+  LOGIN_FAILED: "auth.login_failed",
+  LOGIN_SUCCEEDED: "auth.login_succeeded",
+  EMAIL_VERIFIED: "auth.email_verified",
+  PASSWORD_RESET_REQUESTED: "auth.password_reset_requested",
+  PASSWORD_RESET_COMPLETED: "auth.password_reset_completed",
 } as const;
 
 export type LogEvent = (typeof LOG_EVENTS)[keyof typeof LOG_EVENTS];
@@ -47,6 +52,11 @@ const ALLOWED_FIELDS = new Set([
   "policy",
   "retryAfterSeconds",
   "err",
+  // A hash of the account identity (email), never the address itself — the
+  // same posture src/lib/ratelimit/policy.ts already applies to IPs, so an
+  // auth event can be correlated across a log stream without the database
+  // of logs becoming a record of who used the app (docs/adr/0046).
+  "identityHash",
 ]);
 
 export type LogFields = Record<string, unknown>;

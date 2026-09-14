@@ -1,4 +1,6 @@
 import type { APIRequestContext, Page } from "@playwright/test";
+import { verifyEmail } from "./db";
+import { BASE_URL } from "../constants";
 
 const DEFAULT_PASSWORD = "correct horse battery staple";
 
@@ -42,6 +44,45 @@ export async function signIn(page: Page, email: string, password = DEFAULT_PASSW
 }
 
 /**
+ * `signUp` plus a verified email — for every spec whose real subject is
+ * something *downstream* of verification (sharing, reporting, the feed)
+ * rather than the verification flow itself (that's account-lifecycle.spec.ts's
+ * job). Marks the row verified directly (helpers/db.ts's `verifyEmail`,
+ * bypassing the actual click-through-the-link flow) and then forces this
+ * browser's own session to pick it up: `emailVerified` is only ever
+ * refreshed into the JWT at sign-in or on an explicit `update()` call
+ * (src/auth.ts's jwt callback, docs/adr/0047) — visiting `/verify?status=success`
+ * is what triggers that same call in the real flow, and it works here too
+ * even though no real token was involved.
+ */
+export async function signUpAndVerify(page: Page, email: string, opts?: { name?: string; password?: string }): Promise<void> {
+  await signUp(page, email, opts);
+  await verifyEmail(email);
+  await Promise.all([
+    page.waitForResponse((r) => r.url().includes("/api/auth/session")),
+    page.goto("/verify?status=success"),
+  ]);
+}
+
+/**
+ * Recovers the link from the most recent email ConsoleMailer "sent" to an
+ * address — GET /api/auth/verify/[token] or /reset?token=..., depending on
+ * which flow the spec is exercising. Backed by the E2E_TEST_MODE-gated
+ * `/api/__test/last-email` route (docs/adr/0046); the token itself is never
+ * recoverable from the database, since only its hash is stored there.
+ */
+export async function getLastEmailLink(request: APIRequestContext, to: string): Promise<string> {
+  const response = await request.get(`/api/__test/last-email?to=${encodeURIComponent(to)}`);
+  if (!response.ok()) {
+    throw new Error(`getLastEmailLink: no email found for ${to} (${response.status()})`);
+  }
+  const { text } = (await response.json()) as { text: string };
+  const match = text.match(/https?:\/\/\S+/);
+  if (!match) throw new Error(`getLastEmailLink: no link found in email body for ${to}`);
+  return match[0];
+}
+
+/**
  * Registers an account via the API directly, without touching `page`'s
  * cookies/session — for guest-adoption.spec.ts, which needs an account to
  * exist while the page under test stays an unauthenticated guest until it
@@ -53,6 +94,10 @@ export async function registerAccount(
   opts?: { name?: string; password?: string }
 ): Promise<void> {
   const response = await request.post("/api/auth/register", {
+    // Origin set explicitly — APIRequestContext doesn't add one the way a
+    // real browser fetch() does, and assertSameOrigin (docs/adr/0048)
+    // requires it.
+    headers: { Origin: BASE_URL },
     data: { name: opts?.name ?? "Test Writer", email, password: opts?.password ?? DEFAULT_PASSWORD },
   });
   if (!response.ok()) {

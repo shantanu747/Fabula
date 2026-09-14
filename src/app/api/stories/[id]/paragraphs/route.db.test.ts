@@ -16,7 +16,7 @@ import type { StoryParagraph } from "@/lib/providers/types";
 function post(id: string, storySoFar: StoryParagraph[]): Request {
   return new Request(`http://localhost/api/stories/${id}/paragraphs`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", Origin: "http://localhost" },
     body: JSON.stringify({ storySoFar }),
   });
 }
@@ -61,7 +61,7 @@ describe("POST /api/stories/[id]/paragraphs — auth and validation", () => {
 
     const request = new Request(`http://localhost/api/stories/${story.id}/paragraphs`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", Origin: "http://localhost" },
       body: JSON.stringify({ storySoFar: "not an array" }),
     });
     const response = await POST(request, ctx(story.id));

@@ -1,7 +1,7 @@
 import { test, expect } from "@playwright/test";
 import { resetDatabase } from "../helpers/db";
 import { resetMockScript, setMockScript, streamResponse } from "../helpers/mock";
-import { signUp, uniqueEmail } from "../helpers/auth";
+import { signUp, signUpAndVerify, uniqueEmail } from "../helpers/auth";
 import { startStory, waitForAiParagraph } from "../helpers/story";
 
 // PRD §8 criterion 4.
@@ -15,7 +15,7 @@ test("toggling sharing makes a story visible in another account's feed, and unsh
   page,
   browser,
 }) => {
-  await signUp(page, uniqueEmail(), { name: "Writer A" });
+  await signUpAndVerify(page, uniqueEmail(), { name: "Writer A" });
 
   await setMockScript(streamResponse(["A shared beginning."]));
   await startStory(page, { theme: "a rooftop garden" });
@@ -70,7 +70,7 @@ test("toggling sharing from the story canvas makes it visible in another account
   page,
   browser,
 }) => {
-  await signUp(page, uniqueEmail(), { name: "Writer C" });
+  await signUpAndVerify(page, uniqueEmail(), { name: "Writer C" });
 
   await setMockScript(streamResponse(["A canvas-shared beginning."]));
   await startStory(page, { theme: "a lighthouse at dusk" });

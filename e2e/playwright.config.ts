@@ -150,6 +150,10 @@ export default defineConfig({
       // trusted in production, unless told to trust it explicitly — Vercel
       // deployments get this for free, plain `next start` over HTTP does not.
       AUTH_TRUST_HOST: "true",
+      // Arms GET /api/__test/last-email (docs/adr/0046) — the only way a spec
+      // can recover a verification/reset link ConsoleMailer "sent", since the
+      // token itself is stored hashed. Never set outside this config.
+      E2E_TEST_MODE: "1",
     },
   },
 });

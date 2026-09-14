@@ -17,6 +17,13 @@ test.beforeEach(async () => {
 test.describe("accessibility", () => {
   test("no serious or critical axe violations on any scanned route", async ({ browser }, testInfo) => {
     test.skip(testInfo.project.name === "tablet", "scanned at mobile and desktop only");
+    // seedRouteCheckpoints does several signups and generations before this
+    // test's own assertions even start (same reasoning as visual.spec.ts's
+    // identical override) — comfortable margin locally, tight enough on a
+    // slower CI runner that the account-lifecycle work's extra verify-and-
+    // refresh round trip for one checkpoint's signup was enough to exceed
+    // the default 30s test timeout there specifically.
+    test.setTimeout(60_000);
 
     const { checkpoints, cleanup } = await seedRouteCheckpoints(browser);
     try {
