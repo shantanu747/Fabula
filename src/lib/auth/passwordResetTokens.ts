@@ -21,7 +21,8 @@ const EXPIRY_MS = 60 * 60 * 1000;
 // this token relies on (single-use, time-limited, looked up by exact hash
 // match).
 function hashToken(rawToken: string): string {
-  return createHash("sha256").update(rawToken).digest("hex"); // lgtm[js/insufficient-password-hash]
+  // codeql[js/insufficient-password-hash]
+  return createHash("sha256").update(rawToken).digest("hex");
 }
 
 /**
