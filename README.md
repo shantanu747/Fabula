@@ -45,6 +45,7 @@ Fill in `.env.local`:
 | `KV_REST_API_URL`, `KV_REST_API_TOKEN` | Redis-backed concurrency admission and daily spend caps ([`docs/adr/0035`](docs/adr/0035-redis-as-a-non-authoritative-tier.md)) — entirely optional, the app falls back to Postgres-only rate limiting with no caps beyond that |
 | `TRUSTED_PROXY_HOP_COUNT` | Only if self-hosting behind a proxy other than Vercel's — defaults to 1 |
 | `CRON_SECRET` | Only if `vercel.json`'s `rate_limit_bucket` pruning cron is scheduled |
+| `RESEND_API_KEY`, `EMAIL_FROM` | Real verification/password-reset email delivery ([`docs/adr/0046`](docs/adr/0046-account-lifecycle-and-mailer-abstraction.md)) — entirely optional, unset uses `ConsoleMailer` (logs the link instead of sending it), which is enough for local dev and is what CI/E2E run against |
 
 If you're using a database, generate and apply the schema:
 
