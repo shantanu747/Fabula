@@ -2,6 +2,8 @@ import type { StoryParagraph } from "@/lib/providers/types";
 import {
   MAX_HINT_LENGTH,
   MAX_OPENING_LINES_LENGTH,
+  MAX_PARAGRAPH_TEXT_LENGTH,
+  MAX_STORY_PARAGRAPHS,
   MAX_TARGET_LENGTH,
   MIN_TARGET_LENGTH,
 } from "./constants";
@@ -16,12 +18,13 @@ export function isStoryParagraph(value: unknown): value is StoryParagraph {
   return (
     (p.author === "writer" || p.author === "ai") &&
     typeof p.text === "string" &&
+    p.text.length <= MAX_PARAGRAPH_TEXT_LENGTH &&
     (p.providerId === undefined || typeof p.providerId === "string")
   );
 }
 
 export function isStoryParagraphArray(value: unknown): value is StoryParagraph[] {
-  return Array.isArray(value) && value.every(isStoryParagraph);
+  return Array.isArray(value) && value.length <= MAX_STORY_PARAGRAPHS && value.every(isStoryParagraph);
 }
 
 /** Mirrors the slider's range in the UI (see MIN/MAX_TARGET_LENGTH). */

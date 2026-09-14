@@ -3,7 +3,7 @@
 import { Suspense, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useStory, MIN_TARGET_LENGTH, MAX_TARGET_LENGTH } from "@/lib/story/StoryContext";
-import { MAX_HINT_LENGTH } from "@/lib/story/constants";
+import { MAX_HINT_LENGTH, MAX_OPENING_LINES_LENGTH } from "@/lib/story/constants";
 import { AppHeader } from "@/components/AppHeader";
 import { splitDisplayName } from "@/lib/ui/providerName";
 import { numberWord } from "@/lib/ui/numberWord";
@@ -146,9 +146,13 @@ function HomeContent() {
                       value={theme}
                       onChange={(e) => setTheme(e.target.value)}
                       disabled={isStreaming}
+                      maxLength={MAX_HINT_LENGTH}
                       placeholder="A cozy mystery in a small mountain town"
                       className="field mt-3 font-heading text-[26px] leading-[1.3] pb-[10px] md:text-[30px]"
                     />
+                    <p className="mt-2 text-[11.5px] italic text-muted">
+                      {theme.length} / {MAX_HINT_LENGTH}
+                    </p>
                     <div className="mt-[18px] flex flex-wrap gap-2">
                       {PRESET_THEMES.map((preset) => (
                         <button
@@ -178,11 +182,12 @@ function HomeContent() {
                       value={characters}
                       onChange={(e) => setCharacters(e.target.value)}
                       disabled={isStreaming}
+                      maxLength={MAX_HINT_LENGTH}
                       placeholder="A retired lighthouse keeper and a dragon who's afraid of water"
                       className="field mt-3 min-h-[86px] font-heading text-[24px] leading-[1.45] pb-[10px] md:text-[27px]"
                     />
                     <p className="mt-4 text-[12.5px] italic leading-[1.7] text-muted">
-                      Leave it blank and the AI invents someone.
+                      Leave it blank and the AI invents someone. ({characters.length} / {MAX_HINT_LENGTH})
                     </p>
                   </>
                 )}
@@ -199,9 +204,13 @@ function HomeContent() {
                       value={openingLines}
                       onChange={(e) => setOpeningLines(e.target.value)}
                       disabled={isStreaming}
+                      maxLength={MAX_OPENING_LINES_LENGTH}
                       placeholder="Write a line or two to set the tone…"
                       className="field mt-3 min-h-[112px] font-heading text-[23px] italic leading-[1.55] pb-[10px] md:text-[26px]"
                     />
+                    <p className="mt-2 text-[11.5px] italic text-muted">
+                      {openingLines.length} / {MAX_OPENING_LINES_LENGTH}
+                    </p>
                     <p className="mt-5 text-[12.5px] leading-[1.7] text-muted">
                       or{" "}
                       <button
