@@ -10,6 +10,7 @@ import { guardGenerate } from "@/lib/ratelimit/guard";
 import { clientIp } from "@/lib/ratelimit/policy";
 import { acquireLease } from "@/lib/admission/lease";
 import { checkBudget, recordSpend, type BudgetIdentity } from "@/lib/budget";
+import { checkBreaker, isProviderQuotaError, recordBreakerOutcome } from "@/lib/providers/circuitBreaker";
 import {
   FIRST_CHUNK_TIMEOUT_MS,
   MAX_OUTPUT_TOKENS,
@@ -513,18 +514,50 @@ export async function POST(request: Request) {
     }
   }
 
-  let attempt = await attemptFirstChunk();
+  // Circuit breaker (docs/adr/0045-provider-circuit-breaker.md): checked once,
+  // up front, before either the initial attempt or its retry — an open breaker
+  // skips both, saving the Writer the full FIRST_CHUNK_TIMEOUT_MS rather than
+  // just shortening it. Extends ADR 0023's Writer-mediated failover; it does
+  // not replace it — a denial below produces exactly the same 502-with-
+  // suggestion a real failure would, and the Writer is still asked before any
+  // fallback provider is used.
+  const breaker = await checkBreaker(activeProvider.id);
 
-  // Rule: a fast failure (a real error, not our own timeout, and not the
-  // client leaving) gets exactly one retry against the same provider before
-  // giving up — a fresh generator each time, never re-driving a finished one.
-  // A timeout never retries: it already cost the Writer the full budget once,
-  // and doubling that wait before they learn anything is worse than asking.
-  if (!attempt.ok && abortReason === undefined) {
+  let attempt: Awaited<ReturnType<typeof attemptFirstChunk>>;
+  if (!breaker.allowed) {
+    attempt = { ok: false, err: new Error(`circuit breaker open for ${activeProvider.id}`) };
+    log.warn(LOG_EVENTS.BREAKER_REJECTED, { requestId, providerId: input.providerId, authenticated });
+  } else {
     attempt = await attemptFirstChunk();
+
+    // Rule: a fast failure (a real error, not our own timeout, and not the
+    // client leaving) gets exactly one retry against the same provider before
+    // giving up — a fresh generator each time, never re-driving a finished one.
+    // A timeout never retries: it already cost the Writer the full budget once,
+    // and doubling that wait before they learn anything is worse than asking.
+    if (!attempt.ok && abortReason === undefined) {
+      attempt = await attemptFirstChunk();
+    }
+
+    // Only a call that actually reached the provider updates the breaker.
+    // Skipped entirely for a client disconnect (says nothing about provider
+    // health) and for a provider 429 (quota, not an outage — opening the
+    // breaker on a throttle would turn it into a full outage for everyone
+    // else, the one failure class the plan explicitly excludes).
+    if (abortReason !== "client") {
+      if (attempt.ok) {
+        await recordBreakerOutcome(activeProvider.id, "success");
+      } else if (abortReason === "timeout" || !isProviderQuotaError(attempt.err)) {
+        await recordBreakerOutcome(activeProvider.id, "failure");
+      }
+    }
   }
 
   if (!attempt.ok) {
+    // Reached only pre-stream, so `finishOnce`'s own cleanup (below) never
+    // runs on this path — this is the terminal point for it instead.
+    request.signal.removeEventListener("abort", onClientAbort);
+
     if (abortReason === "client") {
       // The client is already gone — nothing reads this response, and it must
       // not read as a provider failure in the cost/outcome history.
@@ -581,6 +614,12 @@ export async function POST(request: Request) {
     if (finishedOnce) return false;
     finishedOnce = true;
     clearGraceTimer();
+    // Reached from every terminal path (success, provider failure, client
+    // disconnect) — the one place guaranteed to run exactly once per request,
+    // so it's also the right place to drop the abort listener rather than
+    // leaving it attached to `request.signal` for the rest of this closure's
+    // lifetime once there's nothing left for it to do.
+    request.signal.removeEventListener("abort", onClientAbort);
     await finish(args);
     return true;
   }
