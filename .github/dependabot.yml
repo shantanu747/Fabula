@@ -34,3 +34,15 @@ updates:
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 5
+    groups:
+      # github/codeql-action ships init/analyze/autobuild/upload-sarif as
+      # separate `uses:` references within one repo, and codeql.yml pins each
+      # independently — Dependabot tracks each reference as its own update,
+      # so without this group a bump lands as two (or more) separate PRs.
+      # Applying only one leaves init/analyze on mismatched versions, which
+      # the action itself refuses to run: "Loaded a configuration file for
+      # version 'X', but running version 'Y'" — a same-day incident, not a
+      # hypothetical. Grouping forces every codeql-action reference to move
+      # together in one PR.
+      codeql-action:
+        patterns: ["github/codeql-action/*"]
