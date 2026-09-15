@@ -17,6 +17,17 @@ updates:
       production-dependencies:
         dependency-type: "production"
         update-types: ["patch", "minor"]
+      # vitest and @vitest/coverage-v8 are separately-versioned packages with
+      # a hard peer dependency — coverage-v8@N requires vitest@N exactly —
+      # so bumping one without the other isn't "review each major
+      # separately", it's an unresolvable `npm ci` (ERESOLVE) on every PR
+      # until a human manually combines them. Grouping regardless of
+      # update-type keeps them moving together, same fix as the
+      # codeql-action group below for the same class of problem.
+      vitest:
+        patterns:
+          - "vitest"
+          - "@vitest/*"
 
   - package-ecosystem: "github-actions"
     directory: "/"
