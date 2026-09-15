@@ -52,11 +52,11 @@
     "@playwright/test": "^1.63.0",
     "@tailwindcss/postcss": "^4",
     "@types/bcryptjs": "^3.0.0",
-    "@types/node": "^20",
+    "@types/node": "^22.20.2",
     "@types/pg": "^8.23.1",
     "@types/react": "^19",
     "@types/react-dom": "^19",
-    "@vitest/coverage-v8": "^4.1.10",
+    "@vitest/coverage-v8": "^5.0.0",
     "drizzle-kit": "^0.31.10",
     "eslint": "^9",
     "eslint-config-next": "16.3.4",
@@ -66,6 +66,6 @@
     "tailwindcss": "^4",
     "tsx": "4.23.13",
     "typescript": "^5",
-    "vitest": "^4.1.10"
+    "vitest": "^5.0.0"
   }
 }
