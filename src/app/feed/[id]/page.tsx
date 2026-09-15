@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { asc, eq } from "drizzle-orm";
+import { auth } from "@/auth";
 import { getDb } from "@/lib/db/client";
 import { stories, storyParagraphs, users } from "@/lib/db/schema";
 import { getProviderList } from "@/lib/providers/list";
@@ -17,6 +18,14 @@ const DROP_CAP =
   "first-letter:float-left first-letter:pr-[10px] first-letter:pt-1 first-letter:font-heading first-letter:text-[62px] first-letter:font-normal first-letter:leading-[0.82] first-letter:text-accent";
 
 export default async function SharedStory({ params }: PageProps<"/feed/[id]">) {
+  // Belt-and-suspenders — proxy.ts already redirects unauthenticated requests
+  // to every /feed/* path (the shared feed is logged-in-Writers-only by
+  // design, docs/PRD.md §3, not a step toward public sharing). Every other
+  // story-touching surface re-checks independently (ADR 0009); this one
+  // previously relied solely on the proxy layer.
+  const session = await auth();
+  if (!session?.user?.id) return null;
+
   const { id } = await params;
 
   const db = getDb();
@@ -68,7 +77,12 @@ export default async function SharedStory({ params }: PageProps<"/feed/[id]">) {
   return (
     // print-shared-story scopes globals.css's print stylesheet — a shared story
     // reads as a printed piece (board 1e); the nav header, footer actions and
-    // Report button are chrome, not part of it.
+    // Report button are chrome, not part of it. Kept as a self-contained header
+    // (not hoisted to a shared layout.tsx the way feed/'s list view and
+    // library/ are) because that print rule depends on <header> being this
+    // div's own direct child (`.print-shared-story > header` in globals.css) —
+    // hoisting would put AppHeader in a parent layout instead, breaking that
+    // selector for a route this plan's own scope doesn't require touching.
     <div className="print-shared-story flex flex-1 flex-col bg-background">
       <AppHeader />
 

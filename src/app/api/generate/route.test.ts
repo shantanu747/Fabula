@@ -22,7 +22,7 @@ import { POST } from "./route";
 import { __setDbForTests } from "@/lib/db/client";
 import type { AppDatabase } from "@/lib/db/types";
 import { __setKvForTests } from "@/lib/kv/client";
-import { createFakeAdmissionKv, createFakeResumeKv, throwingKv } from "@/test/kv";
+import { createFakeAdmissionKv, createFakeBreakerKv, createFakeResumeKv, throwingKv } from "@/test/kv";
 import { chunkText, framesOfType, readAllFrames } from "@/test/sse";
 import { acquireLease } from "@/lib/admission/lease";
 import { PROVIDERS } from "@/lib/providers/registry";
@@ -54,6 +54,11 @@ interface FakeOptions {
   /** Throw before yielding anything, on every call — a bad API key or an
    *  invalid model that a retry can never recover from. */
   throwBeforeFirstChunk?: boolean;
+  /** Attached as `.status` on the error thrown by throwBeforeFirstChunk/
+   *  failFirstCalls — models an SDK APIError carrying an HTTP status, e.g. a
+   *  provider's own 429 (docs/adr/0045-provider-circuit-breaker.md: a quota
+   *  429 must never count toward the breaker). */
+  throwStatus?: number;
   /** Throw before yielding, but only for this many calls, then behave
    *  normally — models a transient failure the single retry (rule 1) recovers
    *  from. Mutually exclusive with throwBeforeFirstChunk in practice. */
@@ -118,6 +123,7 @@ function installFake(options: FakeOptions = {}): LLMProvider {
     usage,
     model = "fake-model",
     throwBeforeFirstChunk,
+    throwStatus,
     failFirstCalls = 0,
     throwAfterChunks,
     hang,
@@ -138,7 +144,9 @@ function installFake(options: FakeOptions = {}): LLMProvider {
       return (async function* () {
         try {
           if (throwBeforeFirstChunk || thisCall <= failFirstCalls) {
-            throw new Error("invalid api key");
+            const err = new Error("invalid api key") as Error & { status?: number };
+            if (throwStatus !== undefined) err.status = throwStatus;
+            throw err;
           }
           for (const chunk of chunks) yield chunk;
           if (throwAfterChunks) throw new Error("connection reset");
@@ -158,7 +166,10 @@ function installFake(options: FakeOptions = {}): LLMProvider {
 function post(body: unknown, opts?: { signal?: AbortSignal }): Request {
   return new Request("http://localhost/api/generate", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    // Origin matches the request's own — assertSameOrigin (docs/adr/0048)
+    // rejects same-origin fetches that omit it, and every real browser
+    // fetch() call sends one.
+    headers: { "Content-Type": "application/json", Origin: "http://localhost" },
     body: typeof body === "string" ? body : JSON.stringify(body),
     signal: opts?.signal,
   });
@@ -564,6 +575,137 @@ describe("POST /api/generate — provider failures", () => {
 
     expect(response.status).toBe(499);
     expect(fakeCallCount).toBe(1); // never retried
+  });
+});
+
+describe("POST /api/generate — circuit breaker (docs/adr/0045-provider-circuit-breaker.md)", () => {
+  it("opens after the threshold's worth of consecutive pre-first-chunk failures, then denies without ever calling the provider", async () => {
+    __setKvForTests(createFakeBreakerKv());
+    installFake({ throwBeforeFirstChunk: true });
+    vi.spyOn(console, "error").mockImplementation(() => {});
+
+    // Five requests, each failing its own attempt and its ADR-0023 retry —
+    // one recorded breaker failure per request, not per raw provider call.
+    for (let i = 0; i < 5; i++) {
+      const response = await POST(post(validBody()));
+      expect(response.status).toBe(502);
+    }
+
+    fakeCallCount = 0;
+    const response = await POST(post(validBody()));
+
+    expect(response.status).toBe(502);
+    expect(fakeCallCount).toBe(0); // denied before ever reaching the provider
+    await expect(response.json()).resolves.toMatchObject({ kind: "provider-unavailable" });
+  });
+
+  it("a provider 429 never counts toward the breaker — repeated quota errors leave it closed", async () => {
+    __setKvForTests(createFakeBreakerKv());
+    installFake({ throwBeforeFirstChunk: true, throwStatus: 429 });
+    vi.spyOn(console, "error").mockImplementation(() => {});
+
+    for (let i = 0; i < 10; i++) {
+      await POST(post(validBody()));
+    }
+
+    delete PROVIDERS[FAKE_ID];
+    installFake({ chunks: ["still open"] });
+    fakeCallCount = 0;
+    const response = await POST(post(validBody()));
+
+    expect(response.status).toBe(200);
+    expect(fakeCallCount).toBe(1); // reached the provider — breaker never opened
+  });
+
+  it("a client disconnect never counts toward the breaker", async () => {
+    __setKvForTests(createFakeBreakerKv());
+    installFake({ hang: true });
+    vi.spyOn(console, "error").mockImplementation(() => {});
+
+    for (let i = 0; i < 10; i++) {
+      const controller = new AbortController();
+      const responsePromise = POST(post(validBody(), { signal: controller.signal }));
+      controller.abort();
+      await responsePromise;
+    }
+
+    delete PROVIDERS[FAKE_ID];
+    installFake({ chunks: ["still open"] });
+    fakeCallCount = 0;
+    const response = await POST(post(validBody()));
+
+    expect(response.status).toBe(200);
+    expect(fakeCallCount).toBe(1);
+  });
+
+  it("a first-chunk timeout counts toward the breaker, same as a thrown error", async () => {
+    __setKvForTests(createFakeBreakerKv());
+    vi.useFakeTimers();
+    installFake({ hang: true });
+    vi.spyOn(console, "error").mockImplementation(() => {});
+
+    for (let i = 0; i < 5; i++) {
+      const responsePromise = POST(post(validBody()));
+      await vi.advanceTimersByTimeAsync(FIRST_CHUNK_TIMEOUT_MS);
+      await responsePromise;
+    }
+
+    delete PROVIDERS[FAKE_ID];
+    installFake({ chunks: ["should be denied"] });
+    fakeCallCount = 0;
+    const response = await POST(post(validBody()));
+
+    expect(response.status).toBe(502);
+    expect(fakeCallCount).toBe(0);
+  });
+
+  it("closes again once a probe succeeds after the cooldown elapses", async () => {
+    const kv = createFakeBreakerKv();
+    __setKvForTests(kv);
+    installFake({ throwBeforeFirstChunk: true });
+    vi.spyOn(console, "error").mockImplementation(() => {});
+
+    for (let i = 0; i < 5; i++) {
+      await POST(post(validBody()));
+    }
+    expect(kv.states.get(`breaker:${FAKE_ID}:state`)?.state).toBe("open");
+
+    // Fast-forward past the cooldown by rewriting the fake's own state,
+    // rather than advancing real or fake time — this test cares about the
+    // probe/close transition, not the cooldown duration itself (covered at
+    // the unit level in circuitBreaker.test.ts).
+    kv.states.get(`breaker:${FAKE_ID}:state`)!.openedAt = Date.now() - 31_000;
+
+    delete PROVIDERS[FAKE_ID];
+    installFake({ chunks: ["the probe succeeds"] });
+    fakeCallCount = 0;
+
+    const probeResponse = await POST(post(validBody()));
+    expect(probeResponse.status).toBe(200);
+    expect(fakeCallCount).toBe(1); // the probe actually reached the provider
+
+    // Fully closed now — the very next request needs no cooldown.
+    const nextResponse = await POST(post(validBody()));
+    expect(nextResponse.status).toBe(200);
+    expect(fakeCallCount).toBe(2);
+  });
+
+  it("fails open — a provider is still attempted on every request when Redis throws on every call", async () => {
+    __setKvForTests(throwingKv());
+    installFake({ throwBeforeFirstChunk: true });
+    vi.spyOn(console, "error").mockImplementation(() => {});
+
+    for (let i = 0; i < 10; i++) {
+      await POST(post(validBody()));
+    }
+
+    delete PROVIDERS[FAKE_ID];
+    installFake({ chunks: ["still works — breaker disabled without Redis"] });
+    fakeCallCount = 0;
+    const response = await POST(post(validBody()));
+
+    expect(response.status).toBe(200);
+    expect(fakeCallCount).toBe(1);
   });
 });
 

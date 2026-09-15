@@ -26,6 +26,11 @@ export default defineConfig({
         // shared logic they delegate to — prompt building, windowing, metadata
         // extraction — is covered directly.
         "src/lib/providers/{anthropic,openai,openrouter}.ts",
+        // A three-line re-export of Auth.js's own request handlers — every
+        // other test in this suite mocks `@/auth` entirely (src/test/session.ts),
+        // and there is no meaningful behavior here of this app's own to assert
+        // on separately from that mock.
+        "src/app/api/auth/[...nextauth]/route.ts",
         // Declarative table definitions. What executes in it are the id
         // `$defaultFn` closures, which only run when the suite happens to insert
         // through Drizzle into that particular table, so the percentage measures
@@ -58,6 +63,12 @@ export default defineConfig({
         "src/lib/kv/**": { statements: 100, branches: 100, functions: 100, lines: 100 },
         "src/lib/admission/**": { statements: 100, branches: 100, functions: 100, lines: 100 },
         "src/lib/budget/**": { statements: 100, branches: 100, functions: 100, lines: 100 },
+        // New in v4 Plan 5 (docs/adr/0045-provider-circuit-breaker.md): same
+        // tier as admission/budget above — a wrong fail-open/fail-closed
+        // branch here is either a permanently-tripped breaker refusing a
+        // healthy provider, or a broken probe-claim letting an unbounded
+        // thundering herd through on every cooldown tick.
+        "src/lib/providers/circuitBreaker.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
         // New in v4 Plan 4 (docs/adr/0042, docs/adr/0043): the framed wire
         // protocol and the resume buffer. Same tier as kv/admission/budget —
         // protocol.ts is pure and easy to hold at 100% (the plan's own
@@ -75,8 +86,31 @@ export default defineConfig({
         // unvalidated header into a log line) rather than ordinary route glue, so
         // this sits at the same tier as the other safety-critical libraries above.
         "src/lib/observability/**": { statements: 100, branches: 100, functions: 100, lines: 100 },
+        // New in v4 Plan 6 (docs/adr/0046, docs/adr/0047): token issuance,
+        // hashing, single-use consumption, and session-version comparison —
+        // the same "a wrong branch is a real vulnerability" shape as
+        // ratelimit/kv/admission above (a bug here is token reuse, a
+        // revocation bypass, or the wrong account getting a reset), so the
+        // same 100% tier.
+        "src/lib/auth/**": { statements: 100, branches: 100, functions: 100, lines: 100 },
+        // The Mailer abstraction (docs/adr/0046) — small and easy to hold at
+        // 100%; the registry/console modules are pure selection and logging,
+        // and resend.ts's one branch (the failed-fetch path) is cheap to
+        // exercise with a mocked fetch.
+        "src/lib/email/**": { statements: 100, branches: 100, functions: 100, lines: 100 },
+        // The CSRF origin guard (docs/adr/0048) is a structural security
+        // control in the same sense as the auth-token modules above — a
+        // missed branch here is a forgeable mutating route, not a cosmetic
+        // bug. csp.ts already happened to sit at 100% before this tier
+        // existed; this makes that a held guarantee rather than an accident.
+        "src/lib/security/**": { statements: 100, branches: 100, functions: 100, lines: 100 },
+        // readJsonBody.ts's three branches (oversized, unreadable, invalid
+        // JSON) are exactly the kind of small-and-cheap-to-fully-cover
+        // helper src/lib/ui/** already sits at 100% for.
+        "src/lib/http/**": { statements: 100, branches: 100, functions: 100, lines: 100 },
         "src/app/api/generate/**": { statements: 90, branches: 85, functions: 90, lines: 90 },
         "src/app/api/health/**": { statements: 90, branches: 85, functions: 90, lines: 90 },
+        "src/app/api/auth/**": { statements: 90, branches: 85, functions: 90, lines: 90 },
       },
     },
   },

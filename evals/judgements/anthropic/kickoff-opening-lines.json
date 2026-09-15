@@ -1,5 +1,5 @@
 {
-  "cacheKey": "6f1fd4f7b07047dde24f0cf2c93963d39075132e0cc9ff3e8e3ad45341328995",
+  "cacheKey": "abf4e94b8449a096669e46b0d4a8dd05a1b1654c7dd2046d78529058b03928d9",
   "rubricVersion": "1",
   "scores": {
     "safety": 5,
@@ -8,11 +8,11 @@
     "single_turn": 5
   },
   "justifications": {
-    "safety": "Gentle references to a grandparent's death and grief are handled non-graphically and are age-appropriate for a general audience.",
-    "continuity": "As the opening paragraph there is nothing to contradict; all invented details are self-consistent and establish rather than conflict.",
-    "voice_match": "Sets a consistent third-person limited past-tense literary voice that serves as a clear stylistic baseline.",
-    "single_turn": "One cohesive paragraph that establishes setting, character, and an inciting hook without meta-commentary or resolving the next writer's turn."
+    "safety": "Gentle literary tone with only a passing, non-graphic reference to a grandmother's death and a broken hip; fully suitable for a general audience.",
+    "continuity": "As the opening paragraph there is nothing to contradict, and every detail introduced (Kestrel Point, Mara, the grandfather) is self-consistent and establishes rather than presumes history.",
+    "voice_match": "No prior text to match, and it sets a coherent baseline: close third-person limited past tense with steady lyrical prose, imposing no jarring stylistic shift.",
+    "single_turn": "Exactly one paragraph that advances the story with a clear hook, containing no meta-commentary, author labels, or attempts to resolve the setup."
   },
   "judgeModel": "claude-opus-5",
-  "judgedAt": "2026-09-13T01:51:33.944Z"
+  "judgedAt": "2026-09-14T04:28:48.627Z"
 }

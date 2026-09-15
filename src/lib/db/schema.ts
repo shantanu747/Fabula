@@ -27,6 +27,11 @@ export const users = pgTable("user", {
   emailVerified: timestamp("emailVerified", { mode: "date" }),
   image: text("image"),
   passwordHash: text("passwordHash"),
+  // Stamped into the JWT at sign-in and compared against on every mutating
+  // route (docs/adr/0046-account-lifecycle-and-mailer-abstraction.md,
+  // docs/adr/0047-session-revocation-without-per-request-reads.md). Bumped by
+  // a password reset, which invalidates every session issued before it.
+  tokenVersion: integer("tokenVersion").notNull().default(0),
 });
 
 export const accounts = pgTable(
@@ -65,11 +70,41 @@ export const sessions = pgTable("session", {
 export const verificationTokens = pgTable(
   "verificationToken",
   {
+    // Repurposed here for our own email-verification flow (not Auth.js's
+    // built-in email provider, which this app doesn't use): `identifier` is
+    // the address being verified, `token` is a SHA-256 hash of the token
+    // emailed to the Writer, never the token itself (docs/adr/0046).
     identifier: text("identifier").notNull(),
     token: text("token").notNull(),
     expires: timestamp("expires", { mode: "date" }).notNull(),
   },
   (vt) => [primaryKey({ columns: [vt.identifier, vt.token] })]
+);
+
+/**
+ * Password reset tokens (docs/adr/0046). A separate table from
+ * `verificationTokens` rather than a shared shape: a reset token authorizes
+ * changing a credential, a verification token only flips a boolean, and
+ * conflating them would make a leaked verification link double as an account
+ * takeover vector. Token stored hashed, same reasoning as verificationTokens'
+ * `token` column — a leaked database of live reset tokens must not itself be
+ * a full compromise.
+ */
+export const passwordResetTokens = pgTable(
+  "password_reset_token",
+  {
+    tokenHash: text("tokenHash").primaryKey(),
+    userId: text("userId")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    expires: timestamp("expires", { mode: "date" }).notNull(),
+    // Null until consumed. Checked (not just relied on the row's deletion)
+    // so a reset that races a second request against the same token fails
+    // the second one cleanly instead of silently reusing it.
+    usedAt: timestamp("usedAt", { mode: "date" }),
+    createdAt: timestamp("createdAt", { mode: "date" }).notNull().defaultNow(),
+  },
+  (t) => [index().on(t.userId)]
 );
 
 // App-specific tables — a persisted mirror of the client-side StoryState/StoryParagraph
@@ -99,6 +134,15 @@ export const stories = pgTable("story", {
   // pre-existing rows (all of which have zero paragraphs backfilled anyway).
   paragraphCount: integer("paragraphCount").notNull().default(0),
   contentHash: text("contentHash"),
+  // Set by POST /api/stories when the client sends an Idempotency-Key header
+  // (docs/adr/0044-durable-writer-turns-and-idempotent-creation.md) — null for
+  // any row created before this column existed, and for the (currently
+  // theoretical) case of a caller that omits the header. Null is deliberately
+  // never unique-constrained against other nulls (Postgres's default UNIQUE
+  // behavior already treats every null as distinct from every other null, so
+  // this needs no extra opt-out); only two real, non-null keys under the same
+  // owner ever collide.
+  idempotencyKey: text("idempotencyKey"),
   createdAt: timestamp("createdAt", { mode: "date" }).notNull().defaultNow(),
   updatedAt: timestamp("updatedAt", { mode: "date" }).notNull().defaultNow(),
 }, (t) => [
@@ -118,7 +162,13 @@ export const stories = pgTable("story", {
   // "id" tiebreaker addition as above, for the feed's keyset pagination.
   index("stories_updated_at_id_is_shared_idx")
     .on(sql`"updatedAt" DESC`, sql`"id" DESC`)
-    .where(sql`"isShared" = true`)
+    .where(sql`"isShared" = true`),
+  // The serialization point for idempotent story creation, same role as
+  // story_paragraph's UNIQUE(storyId, position) (ADRs 0013/0016): a second
+  // POST /api/stories with the same key, from the same owner, collides here
+  // (23505) rather than inserting a second row — scoped by ownerId, not
+  // global, so two different Writers can never collide on the same key.
+  unique().on(t.ownerId, t.idempotencyKey),
 ]);
 
 export const storyParagraphs = pgTable("story_paragraph", {

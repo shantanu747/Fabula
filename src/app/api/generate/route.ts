@@ -10,6 +10,7 @@ import { guardGenerate } from "@/lib/ratelimit/guard";
 import { clientIp } from "@/lib/ratelimit/policy";
 import { acquireLease } from "@/lib/admission/lease";
 import { checkBudget, recordSpend, type BudgetIdentity } from "@/lib/budget";
+import { checkBreaker, isProviderQuotaError, recordBreakerOutcome } from "@/lib/providers/circuitBreaker";
 import {
   FIRST_CHUNK_TIMEOUT_MS,
   MAX_OUTPUT_TOKENS,
@@ -23,11 +24,14 @@ import { log, LOG_EVENTS } from "@/lib/observability/logger";
 import { resolveRequestId } from "@/lib/observability/requestId";
 import { encodeHeartbeat, encodeStreamEvent, type StreamEvent } from "@/lib/streaming/protocol";
 import { createResumeBuffer } from "@/lib/streaming/resumeBuffer";
+import { readJsonBody, STORY_BODY_MAX_BYTES } from "@/lib/http/readJsonBody";
 import {
   isStoryParagraphArray,
   areValidHints,
   isValidTargetLength
 } from "@/lib/story/validation";
+import { assertSameOrigin } from "@/lib/security/assertSameOrigin";
+import { assertSessionCurrent } from "@/lib/auth/tokenVersion";
 
 // "nodejs" is already this route's default at runtime (node_modules/next/dist/docs's
 // runtime.md — Edge is deprecated), so this is declarative rather than a behavior
@@ -106,21 +110,19 @@ interface FinishArgs {
 export async function POST(request: Request) {
   const requestId = resolveRequestId(request);
 
-  let body: unknown;
-  try {
-    body = await request.json();
-  } catch {
-    return withRequestId(Response.json({ error: "Invalid JSON body" }, { status: 400 }), requestId);
-  }
-  if (!isValidBody(body)) {
+  const originRejection = assertSameOrigin(request);
+  if (originRejection) return withRequestId(originRejection, requestId);
+
+  const parsed = await readJsonBody(request, STORY_BODY_MAX_BYTES);
+  if (!parsed.ok) return withRequestId(parsed.response, requestId);
+  if (!isValidBody(parsed.body)) {
     return withRequestId(
       Response.json({ error: "Invalid request body" }, { status: 400 }),
       requestId
     );
   }
-  // Rebind to a `const` so closures below (persistAIParagraph) keep the narrowed type —
-  // TS widens `body` back to `unknown` inside closures because it's declared `let`.
-  const input = body;
+  // Rebind to a `const` so closures below (persistAIParagraph) keep the narrowed type.
+  const input = parsed.body;
 
   const provider = getProvider(input.providerId);
   if (!provider) {
@@ -146,6 +148,15 @@ export async function POST(request: Request) {
   // enough to do unconditionally.
   const session = await auth();
   const authenticated = Boolean(session?.user?.id);
+
+  // A revoked-but-still-live JWT must not keep spending its account's
+  // generation budget — checked here, not only on the persisted-story path
+  // below, since a signed-in Writer's guest-shaped (no storyId) call still
+  // counts against GENERATE_USER/the per-user budget (docs/adr/0047).
+  if (session?.user) {
+    const revoked = await assertSessionCurrent(session.user);
+    if (revoked) return withRequestId(revoked, requestId);
+  }
 
   // Last gate before anything costs money. Deliberately after validation and the
   // turn check — a malformed or out-of-turn request never reaches a provider, so
@@ -513,18 +524,50 @@ export async function POST(request: Request) {
     }
   }
 
-  let attempt = await attemptFirstChunk();
+  // Circuit breaker (docs/adr/0045-provider-circuit-breaker.md): checked once,
+  // up front, before either the initial attempt or its retry — an open breaker
+  // skips both, saving the Writer the full FIRST_CHUNK_TIMEOUT_MS rather than
+  // just shortening it. Extends ADR 0023's Writer-mediated failover; it does
+  // not replace it — a denial below produces exactly the same 502-with-
+  // suggestion a real failure would, and the Writer is still asked before any
+  // fallback provider is used.
+  const breaker = await checkBreaker(activeProvider.id);
 
-  // Rule: a fast failure (a real error, not our own timeout, and not the
-  // client leaving) gets exactly one retry against the same provider before
-  // giving up — a fresh generator each time, never re-driving a finished one.
-  // A timeout never retries: it already cost the Writer the full budget once,
-  // and doubling that wait before they learn anything is worse than asking.
-  if (!attempt.ok && abortReason === undefined) {
+  let attempt: Awaited<ReturnType<typeof attemptFirstChunk>>;
+  if (!breaker.allowed) {
+    attempt = { ok: false, err: new Error(`circuit breaker open for ${activeProvider.id}`) };
+    log.warn(LOG_EVENTS.BREAKER_REJECTED, { requestId, providerId: input.providerId, authenticated });
+  } else {
     attempt = await attemptFirstChunk();
+
+    // Rule: a fast failure (a real error, not our own timeout, and not the
+    // client leaving) gets exactly one retry against the same provider before
+    // giving up — a fresh generator each time, never re-driving a finished one.
+    // A timeout never retries: it already cost the Writer the full budget once,
+    // and doubling that wait before they learn anything is worse than asking.
+    if (!attempt.ok && abortReason === undefined) {
+      attempt = await attemptFirstChunk();
+    }
+
+    // Only a call that actually reached the provider updates the breaker.
+    // Skipped entirely for a client disconnect (says nothing about provider
+    // health) and for a provider 429 (quota, not an outage — opening the
+    // breaker on a throttle would turn it into a full outage for everyone
+    // else, the one failure class the plan explicitly excludes).
+    if (abortReason !== "client") {
+      if (attempt.ok) {
+        await recordBreakerOutcome(activeProvider.id, "success");
+      } else if (abortReason === "timeout" || !isProviderQuotaError(attempt.err)) {
+        await recordBreakerOutcome(activeProvider.id, "failure");
+      }
+    }
   }
 
   if (!attempt.ok) {
+    // Reached only pre-stream, so `finishOnce`'s own cleanup (below) never
+    // runs on this path — this is the terminal point for it instead.
+    request.signal.removeEventListener("abort", onClientAbort);
+
     if (abortReason === "client") {
       // The client is already gone — nothing reads this response, and it must
       // not read as a provider failure in the cost/outcome history.
@@ -581,6 +624,12 @@ export async function POST(request: Request) {
     if (finishedOnce) return false;
     finishedOnce = true;
     clearGraceTimer();
+    // Reached from every terminal path (success, provider failure, client
+    // disconnect) — the one place guaranteed to run exactly once per request,
+    // so it's also the right place to drop the abort listener rather than
+    // leaving it attached to `request.signal` for the rest of this closure's
+    // lifetime once there's nothing left for it to do.
+    request.signal.removeEventListener("abort", onClientAbort);
     await finish(args);
     return true;
   }

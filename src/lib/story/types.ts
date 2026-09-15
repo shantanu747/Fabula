@@ -21,7 +21,24 @@ export type GenerationState =
       failedProviderId?: string;
       suggestedProviderId?: string;
       suggestedProviderName?: string;
+      /** Set only for a "rate-limited" error with a parseable `Retry-After` —
+       *  see streamGeneration.ts's `GenerationError`. */
+      retryAfterMs?: number;
     };
+
+/**
+ * Whether this story's current content is durably mirrored server-side
+ * (docs/adr/0044-durable-writer-turns-and-idempotent-creation.md) —
+ * meaningful only for a signed-in Writer (docs/adr/0009); a guest is never
+ * saved server-side at all, and the UI never surfaces this for one.
+ *
+ *  - "unsaved": nothing has been attempted yet — a fresh story, or a guest.
+ *  - "saving": a story-creation or paragraph-sync request is in flight.
+ *  - "saved": the last attempt succeeded and nothing has failed since.
+ *  - "error": the last attempt failed. The Writer must be told — silent
+ *    unsaved state is the bug this exists to close — and offered a retry.
+ */
+export type SaveState = "saved" | "saving" | "unsaved" | "error";
 
 export interface StoryState {
   theme: string;
@@ -39,6 +56,11 @@ export interface StoryState {
    *  or not-yet-persisted story is never shared, so this defaults to `false`
    *  rather than `undefined` (see docs/adr/0039). */
   isShared: boolean;
+  saveState: SaveState;
+  /** Set when the last `setShared` PATCH failed and the optimistic toggle was
+   *  reverted — cleared on the next attempt. Distinct from `saveState`: this
+   *  is about the Share toggle specifically, not the story's own paragraphs. */
+  shareError: boolean;
 }
 
 export type { InventedMetadata, StoryParagraph, ProviderSummary };

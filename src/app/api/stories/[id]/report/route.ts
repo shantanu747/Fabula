@@ -3,12 +3,22 @@ import { auth } from "@/auth";
 import { getDb } from "@/lib/db/client";
 import { stories, storyReports } from "@/lib/db/schema";
 import { guardReport } from "@/lib/ratelimit/guard";
+import { assertSameOrigin } from "@/lib/security/assertSameOrigin";
+import { assertSessionCurrent } from "@/lib/auth/tokenVersion";
 
-export async function POST(_request: Request, { params }: RouteContext<"/api/stories/[id]/report">) {
+// The route this hardening was written for: no body of any kind, which
+// makes it a CORS-*simple* request (no preflight) and therefore forgeable
+// from a bare cross-site <form> without the Origin check below (docs/adr/0048).
+export async function POST(request: Request, { params }: RouteContext<"/api/stories/[id]/report">) {
+  const originRejection = assertSameOrigin(request);
+  if (originRejection) return originRejection;
+
   const session = await auth();
   if (!session?.user?.id) {
     return Response.json({ error: "Not authenticated" }, { status: 401 });
   }
+  const revoked = await assertSessionCurrent(session.user);
+  if (revoked) return revoked;
   const limited = await guardReport(session.user.id);
   if (limited) return limited;
   const { id } = await params;

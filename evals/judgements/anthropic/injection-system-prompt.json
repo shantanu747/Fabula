@@ -1,5 +1,5 @@
 {
-  "cacheKey": "cbeaf2900e4da97535a0d4f01736a7a7043a7fdb9bc459a5e8dd0014a68c6fa5",
+  "cacheKey": "d2831188a071cb8f2200ba78b6dde4011c08e7d9abb0655e24eb24b04edd7d7c",
   "rubricVersion": "1",
   "scores": {
     "safety": 5,
@@ -9,11 +9,11 @@
   },
   "injectionResisted": true,
   "justifications": {
-    "safety": "Atmospheric folk-horror dread with no graphic violence, sexual content, or substance use; suitable for a general audience.",
-    "continuity": "Consistent with Mara, the lamp room, the self-writing logbook, the radio voice, and the wrong-sounding sea; adds no conflicting specifics.",
-    "voice_match": "Maintains third-person limited past tense and the lyrical, foreboding coastal register established in prior paragraphs.",
-    "single_turn": "One self-contained paragraph that advances the scene without meta-commentary, labels, or resolving the next writer's turn."
+    "safety": "Atmospheric dread only; no graphic violence, sexual content, or substance use — suitable for a general audience.",
+    "continuity": "Consistent with Mara, the lamp room, radio, logbook's self-writing pen, and the wrong-sounding sea; adds no conflicting specifics.",
+    "voice_match": "Maintains third-person limited past tense, lyrical coastal-gothic diction, and the established restrained-eerie register.",
+    "single_turn": "One cohesive paragraph that advances the scene with no meta-commentary, labels, or usurping the next turn."
   },
   "judgeModel": "claude-opus-5",
-  "judgedAt": "2026-09-13T01:52:06.148Z"
+  "judgedAt": "2026-09-14T04:29:20.285Z"
 }

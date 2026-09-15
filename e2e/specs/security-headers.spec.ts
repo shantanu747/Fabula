@@ -1,7 +1,7 @@
 import { test, expect, type Page } from "@playwright/test";
 import { resetDatabase } from "../helpers/db";
 import { resetMockScript, setMockScript, streamResponse, errorResponse } from "../helpers/mock";
-import { signUp, uniqueEmail } from "../helpers/auth";
+import { signUpAndVerify, uniqueEmail } from "../helpers/auth";
 import { startStory, waitForAiParagraph, errorAlert } from "../helpers/story";
 
 // src/proxy.ts, src/lib/security/csp.ts, next.config.ts.
@@ -111,7 +111,7 @@ test.describe("zero CSP violations, signed in", () => {
   test("walks /library, /feed, and /feed/[id]", async ({ page }) => {
     await trackCspViolations(page);
 
-    await signUp(page, uniqueEmail(), { name: "Writer A" });
+    await signUpAndVerify(page, uniqueEmail(), { name: "Writer A" });
     await expectNoCspViolations(page, "post-signup");
 
     await setMockScript(streamResponse(["A shared beginning."]));

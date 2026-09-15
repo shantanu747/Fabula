@@ -7,6 +7,7 @@ import {
   GENERATE_GUEST,
   GENERATE_GUEST_UNIDENTIFIED,
   GENERATE_USER,
+  hashIdentity,
   REGISTER,
   REPORT,
   retryAfterSeconds,
@@ -112,6 +113,21 @@ describe("bucketKey", () => {
     const ip = "203.0.113.7";
 
     expect(bucketKey(GENERATE_GUEST, ip)).not.toContain(ip);
+  });
+});
+
+describe("hashIdentity", () => {
+  it("never contains the raw identity", () => {
+    const email = "writer@example.com";
+    expect(hashIdentity(email)).not.toContain(email);
+  });
+
+  it("is stable for the same identity", () => {
+    expect(hashIdentity("writer@example.com")).toBe(hashIdentity("writer@example.com"));
+  });
+
+  it("differs for different identities", () => {
+    expect(hashIdentity("writer@example.com")).not.toBe(hashIdentity("other@example.com"));
   });
 });
 

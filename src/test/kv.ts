@@ -120,6 +120,70 @@ export function createFakeBudgetKv(): Redis {
 }
 
 /**
+ * An in-memory stand-in for the circuit breaker's two Lua scripts
+ * (`src/lib/providers/circuitBreaker.ts`) plus the plain `del` it uses on a
+ * success. Distinguishes the two scripts by a substring unique to each, same
+ * technique as `createFakeAdmissionKv`. `now`/`cooldownMs` are taken from the
+ * script's own ARGV (as real Redis would see them) rather than from
+ * `Date.now()` directly, so a test can fully control elapsed time without
+ * fake timers.
+ */
+export type FakeBreakerKv = Redis & {
+  states: Map<string, { state?: "open"; failures?: number; openedAt?: number }>;
+  probes: Set<string>;
+};
+
+export function createFakeBreakerKv(): FakeBreakerKv {
+  const states = new Map<string, { state?: "open"; failures?: number; openedAt?: number }>();
+  const probes = new Set<string>();
+
+  function eval_(script: string, keys: string[], args: string[]): string | number {
+    const [stateKeyName, probeKeyName] = keys;
+
+    if (script.includes("local claimed")) {
+      const [now, cooldownMs] = args.map(Number);
+      const entry = states.get(stateKeyName);
+      if (!entry || entry.state !== "open") return "allow";
+      if (now - (entry.openedAt ?? 0) < cooldownMs) return "deny";
+      if (probes.has(probeKeyName)) return "deny";
+      probes.add(probeKeyName);
+      return "probe";
+    }
+
+    if (script.includes("HINCRBY")) {
+      const [now, threshold] = args.map(Number);
+      probes.delete(probeKeyName);
+      const entry = states.get(stateKeyName) ?? {};
+      if (entry.state === "open") {
+        entry.openedAt = now;
+        states.set(stateKeyName, entry);
+        return 1;
+      }
+      entry.failures = (entry.failures ?? 0) + 1;
+      if (entry.failures >= threshold) {
+        entry.state = "open";
+        entry.openedAt = now;
+      }
+      states.set(stateKeyName, entry);
+      return 1;
+    }
+
+    throw new Error(`createFakeBreakerKv: unrecognised script:\n${script}`);
+  }
+
+  async function del(...keysToDelete: string[]): Promise<number> {
+    let count = 0;
+    for (const k of keysToDelete) {
+      if (states.delete(k)) count++;
+      if (probes.delete(k)) count++;
+    }
+    return count;
+  }
+
+  return { eval: eval_, del, states, probes } as unknown as FakeBreakerKv;
+}
+
+/**
  * A generic get/set stand-in for the resume buffer (`src/lib/streaming/resumeBuffer.ts`),
  * which stores and reads back one arbitrary JSON-shaped record per key rather
  * than a numeric counter — unlike `createFakeBudgetKv`, this is a plain map,
@@ -135,5 +199,25 @@ export function createFakeResumeKv(): Redis {
       store.set(key, value);
       return "OK";
     },
+  } as unknown as Redis;
+}
+
+/**
+ * A get/set/del stand-in for the tokenVersion cache
+ * (`src/lib/auth/tokenVersion.ts`), which needs `del` (an invalidation on
+ * every bump) that none of the other fakes above do — otherwise the same
+ * plain-map shape as `createFakeResumeKv`. TTL (the `{ ex }` option on
+ * `set`) is accepted and ignored, same convention as the other fakes here.
+ */
+export function createFakeTokenVersionKv(): Redis {
+  const store = new Map<string, number>();
+
+  return {
+    get: async (key: string) => (store.has(key) ? store.get(key)! : null),
+    set: async (key: string, value: number) => {
+      store.set(key, value);
+      return "OK";
+    },
+    del: async (key: string) => (store.delete(key) ? 1 : 0),
   } as unknown as Redis;
 }

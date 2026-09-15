@@ -48,7 +48,7 @@ function installFake(options: { chunks?: string[]; beforeReturn?: () => Promise<
 function post(body: Record<string, unknown>): Request {
   return new Request("http://localhost/api/generate", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", Origin: "http://localhost" },
     body: JSON.stringify({ providerId: FAKE_ID, ...body }),
   });
 }
@@ -221,7 +221,11 @@ describe("POST /api/generate — rate limiting", () => {
   function guestPost(ip: string) {
     return new Request("http://localhost/api/generate", {
       method: "POST",
-      headers: { "Content-Type": "application/json", "x-forwarded-for": ip },
+      headers: {
+        "Content-Type": "application/json",
+        "x-forwarded-for": ip,
+        Origin: "http://localhost",
+      },
       body: JSON.stringify({ providerId: FAKE_ID, storySoFar: [] }),
     });
   }
@@ -291,7 +295,11 @@ describe("POST /api/generate — rate limiting", () => {
     setTestSession(null);
     const outOfTurn = new Request("http://localhost/api/generate", {
       method: "POST",
-      headers: { "Content-Type": "application/json", "x-forwarded-for": "203.0.113.7" },
+      headers: {
+        "Content-Type": "application/json",
+        "x-forwarded-for": "203.0.113.7",
+        Origin: "http://localhost",
+      },
       body: JSON.stringify({
         providerId: FAKE_ID,
         storySoFar: [{ author: "ai", text: "The AI just wrote." }],
