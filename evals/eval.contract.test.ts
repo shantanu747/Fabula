@@ -26,13 +26,13 @@ function snapshotPath(caseId: string): string {
 
 describe("layer 1: prompt contract", () => {
   for (const evalCase of CASES) {
-    it(`snapshots the request payload for ${evalCase.id}`, () => {
+    it(`snapshots the request payload for ${evalCase.id}`, async () => {
       const trueCount = evalCase.input.storySoFar.length;
       const windowed = {
         ...evalCase.input,
         storySoFar: windowStoryParagraphs(evalCase.input.storySoFar),
       };
-      expect({
+      await expect({
         systemPrompt: buildSystemPrompt(),
         messages: buildMessages(windowed, trueCount),
       }).toMatchFileSnapshot(snapshotPath(evalCase.id));
