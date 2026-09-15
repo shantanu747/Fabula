@@ -166,7 +166,10 @@ function installFake(options: FakeOptions = {}): LLMProvider {
 function post(body: unknown, opts?: { signal?: AbortSignal }): Request {
   return new Request("http://localhost/api/generate", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    // Origin matches the request's own — assertSameOrigin (docs/adr/0048)
+    // rejects same-origin fetches that omit it, and every real browser
+    // fetch() call sends one.
+    headers: { "Content-Type": "application/json", Origin: "http://localhost" },
     body: typeof body === "string" ? body : JSON.stringify(body),
     signal: opts?.signal,
   });

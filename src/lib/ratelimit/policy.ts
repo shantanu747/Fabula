@@ -83,6 +83,71 @@ export const REGISTER: RateLimitPolicy = {
 };
 
 /**
+ * Two independent buckets defend `authorize()` against two different
+ * attacks, and both are needed — an IP-only limit is defeated by a botnet
+ * spraying one account from many addresses, an account-only limit is
+ * defeated by one attacker spraying many accounts from one address
+ * (docs/adr/0046). Sized like REGISTER: cheap to serve, attractive to
+ * automate, no real Writer ever needs more than a handful of attempts a
+ * minute against their own address.
+ */
+export const LOGIN_IP: RateLimitPolicy = {
+  scope: "login:ip",
+  capacity: 10,
+  refillPerSecond: 1 / 30,
+};
+
+/** Stricter than LOGIN_IP's per-attempt rate: a real Writer who mistypes a
+ *  password a few times still gets through, but a distributed guessing run
+ *  against one address exhausts this long before it exhausts any individual
+ *  IP's own bucket. */
+export const LOGIN_ACCOUNT: RateLimitPolicy = {
+  scope: "login:account",
+  capacity: 5,
+  refillPerSecond: 1 / 120,
+};
+
+/** Requesting a verification (re)send is cheap to serve and only ever useful
+ *  to spam an inbox with — capacity sized for "I lost the first email,
+ *  send it again" a couple of times, not a resend loop. */
+export const VERIFY_REQUEST: RateLimitPolicy = {
+  scope: "verify:request",
+  capacity: 3,
+  refillPerSecond: 1 / 300,
+};
+
+/**
+ * Same per-IP/per-account split as LOGIN_IP/LOGIN_ACCOUNT, for the same
+ * reason: `/password/request` is uninformative about whether the address
+ * exists (ADR 0011's posture), so a per-address bucket is what actually
+ * bounds "email-bomb one Writer's inbox" — a per-IP bucket alone can't,
+ * since the response gives an attacker no signal to stop probing on.
+ */
+export const PASSWORD_RESET_REQUEST_IP: RateLimitPolicy = {
+  scope: "password:request:ip",
+  capacity: 5,
+  refillPerSecond: 1 / 300,
+};
+
+export const PASSWORD_RESET_REQUEST_ACCOUNT: RateLimitPolicy = {
+  scope: "password:request:account",
+  capacity: 3,
+  refillPerSecond: 1 / 600,
+};
+
+/**
+ * `/password/reset` itself has no spammable side effect the way `/request`
+ * does — guessing a 256-bit token isn't a realistic brute-force target
+ * either way — but it's still a state-changing endpoint, so it gets a
+ * light IP-based ceiling as a backstop rather than none at all.
+ */
+export const PASSWORD_RESET_COMPLETE: RateLimitPolicy = {
+  scope: "password:reset:complete",
+  capacity: 10,
+  refillPerSecond: 1 / 60,
+};
+
+/**
  * Reads are cheap (an indexed select, no provider call) and can be generous —
  * a library or feed page load fires one, and paging through it fires a handful
  * more in quick succession. Both `/api/stories` GET and `/api/stories/[id]` GET
@@ -209,6 +274,16 @@ export const UNIDENTIFIED_GUEST_IP = "unknown";
 export function bucketKey(policy: RateLimitPolicy, identity: string): string {
   const digest = createHash("sha256").update(identity).digest("hex").slice(0, 32);
   return `${policy.scope}:${digest}`;
+}
+
+/**
+ * Same hash-don't-store posture as `bucketKey`, for a different consumer:
+ * auth logging (docs/adr/0046) wants to correlate events for one account
+ * across a log stream without the log line ever carrying the address
+ * itself — the same reason `policy.ts` never persists a raw IP.
+ */
+export function hashIdentity(identity: string): string {
+  return createHash("sha256").update(identity).digest("hex").slice(0, 16);
 }
 
 /**

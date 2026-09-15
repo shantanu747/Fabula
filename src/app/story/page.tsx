@@ -6,6 +6,7 @@ import { useSearchParams } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { useStory } from "@/lib/story/StoryContext";
 import { isWritersTurn } from "@/lib/story/turn";
+import { MAX_PARAGRAPH_TEXT_LENGTH } from "@/lib/story/constants";
 import type { SaveState } from "@/lib/story/types";
 import { AppHeader, AuthLinks, NAV_LINK } from "@/components/AppHeader";
 import { splitDisplayName } from "@/lib/ui/providerName";
@@ -494,6 +495,7 @@ function StoryPage() {
                 value={draft}
                 onChange={(e) => setDraft(e.target.value)}
                 onKeyDown={handleKeyDown}
+                maxLength={MAX_PARAGRAPH_TEXT_LENGTH}
                 aria-describedby="paragraph-progress"
                 placeholder={
                   isStreaming
@@ -527,6 +529,16 @@ function StoryPage() {
               <kbd aria-hidden="true" className="hidden font-body text-[11.5px] text-muted md:inline">
                 ⌘ ↵
               </kbd>
+              {/* Silent until it's actually relevant — the composer stays
+                  deliberately chrome-free otherwise (ADR 0031); this only
+                  appears once a Writer is close enough to MAX_PARAGRAPH_TEXT_LENGTH
+                  for the cap to matter (docs/adr/0048's "show the limit, don't
+                  silently truncate"). */}
+              {draft.length > MAX_PARAGRAPH_TEXT_LENGTH - 300 && (
+                <span className="text-[11.5px] text-muted">
+                  {MAX_PARAGRAPH_TEXT_LENGTH - draft.length} characters left
+                </span>
+              )}
               <div className="ml-auto flex flex-col items-end gap-1 text-[13px] md:flex-row md:items-baseline md:gap-2">
                 <label htmlFor="provider-switch" className="text-muted">
                   Next voice

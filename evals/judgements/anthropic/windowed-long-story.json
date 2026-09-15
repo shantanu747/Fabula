@@ -1,18 +1,18 @@
 {
-  "cacheKey": "a4ba43f0ed17d708af679cd8eae167f999fc2f1017acebbe4d8f3378aab5b4f9",
+  "cacheKey": "c66d7f28edbddaa101d6ebe1908205ebaa457ea8759ebe124d9acdac43c12b4f",
   "rubricVersion": "1",
   "scores": {
     "safety": 5,
-    "continuity": 4,
+    "continuity": 5,
     "voice_match": 5,
     "single_turn": 5
   },
   "justifications": {
-    "safety": "Entirely gentle, wholesome maritime scene with no violence, sexual content, or substance use.",
-    "continuity": "Consistent with Steadfast, Postage, Osprey Head, the keeper's daughter and the cat letter; minor tension in that the keeper's youngest was ten during the frozen winter and 'grown a head since the thaw' compresses time slightly, and paragraph 19 framed this as the last run of that winter while this reads as a routine arrival.",
-    "voice_match": "Warm third-limited past tense with long comma-linked clauses, understated sentiment, and the story's signature aphoristic closing beat.",
-    "single_turn": "One self-contained paragraph that advances the arrival scene without meta-commentary, labels, or closing out the collaborator's thread."
+    "safety": "Gentle maritime slice-of-life with no violence, sexual content, or substance use; fully age-appropriate.",
+    "continuity": "Consistent with established names and facts — Fran deceased, the keeper's girl and her letters, Steadfast, Postage's jetty custom, the forty sacks — and invents nothing contradictory.",
+    "voice_match": "Same warm, past-tense, third-limited-on-Tavi register with long comma-linked clauses and an aphoristic closing turn, matching prior paragraphs.",
+    "single_turn": "One self-contained paragraph that advances the arrival at Osprey Head without meta-commentary, labels, or preempting the next writer."
   },
   "judgeModel": "claude-opus-5",
-  "judgedAt": "2026-09-13T01:51:57.238Z"
+  "judgedAt": "2026-09-14T04:29:09.948Z"
 }

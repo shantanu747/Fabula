@@ -14,3 +14,12 @@ export const MAX_TARGET_LENGTH = 30;
 // stories table or a provider prompt.
 export const MAX_HINT_LENGTH = 500;
 export const MAX_OPENING_LINES_LENGTH = 2000;
+
+// Bounds on the Writer's own paragraph turns (docs/adr/0048) — nothing capped
+// either of these before, despite both being written straight into
+// story_paragraph and a provider prompt. Generous relative to the AI's own
+// ~80-180-word target (MAX_PARAGRAPH_TEXT_LENGTH is roughly 20x that) and to
+// MAX_TARGET_LENGTH's 30-paragraph soft target (MAX_STORY_PARAGRAPHS is
+// roughly 7x that), so a real Writer never notices either limit.
+export const MAX_PARAGRAPH_TEXT_LENGTH = 4000;
+export const MAX_STORY_PARAGRAPHS = 200;

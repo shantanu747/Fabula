@@ -6,6 +6,11 @@ import {
   GENERATE_GUEST_UNIDENTIFIED,
   GENERATE_USER,
   HEALTH,
+  LOGIN_ACCOUNT,
+  LOGIN_IP,
+  PASSWORD_RESET_COMPLETE,
+  PASSWORD_RESET_REQUEST_ACCOUNT,
+  PASSWORD_RESET_REQUEST_IP,
   REGISTER,
   REPORT,
   RESUME_GUEST,
@@ -13,6 +18,7 @@ import {
   STORIES_READ,
   STORIES_WRITE,
   UNIDENTIFIED_GUEST_IP,
+  VERIFY_REQUEST,
   type RateLimitPolicy,
 } from "./policy";
 import { consumeToken, tooManyRequests } from "./store";
@@ -117,6 +123,48 @@ export function guardFeedRead(userId: string): Promise<Response | null> {
 
 export function guardReport(userId: string): Promise<Response | null> {
   return apply(REPORT, userId, "Too many reports from this account. Try again later.");
+}
+
+/**
+ * Two independent buckets, checked in sequence — IP first, then account,
+ * short-circuiting on whichever denies first (docs/adr/0046). Each check
+ * spends its own bucket's token regardless of the other's outcome; the
+ * "wasted" IP-bucket token on a request an account-bucket denial later
+ * rejects is negligible next to the bcrypt compare a real attempt costs.
+ */
+export async function guardLogin(request: Request, email: string): Promise<Response | null> {
+  const byIp = await apply(LOGIN_IP, clientIp(request), "Too many sign-in attempts. Try again shortly.");
+  if (byIp) return byIp;
+  return apply(
+    LOGIN_ACCOUNT,
+    email,
+    "Too many sign-in attempts for this account. Try again shortly, or reset your password."
+  );
+}
+
+/** Keyed by account, not address — requesting a resend only makes sense for
+ *  an already-authenticated Writer (see POST /api/auth/verify/request). */
+export function guardVerifyRequest(userId: string): Promise<Response | null> {
+  return apply(VERIFY_REQUEST, userId, "Too many verification emails requested. Try again later.");
+}
+
+/** Same two-bucket shape as guardLogin, for the same reason — see policy.ts. */
+export async function guardPasswordResetRequest(request: Request, email: string): Promise<Response | null> {
+  const byIp = await apply(
+    PASSWORD_RESET_REQUEST_IP,
+    clientIp(request),
+    "Too many password reset requests. Try again shortly."
+  );
+  if (byIp) return byIp;
+  return apply(
+    PASSWORD_RESET_REQUEST_ACCOUNT,
+    email,
+    "Too many password reset requests for this account. Try again shortly."
+  );
+}
+
+export function guardPasswordResetComplete(request: Request): Promise<Response | null> {
+  return apply(PASSWORD_RESET_COMPLETE, clientIp(request), "Too many attempts. Try again shortly.");
 }
 
 /**

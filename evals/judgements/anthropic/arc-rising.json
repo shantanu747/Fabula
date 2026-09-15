@@ -1,5 +1,5 @@
 {
-  "cacheKey": "72c7ee7eecf852e67e1f9e48a615d581dc1a8ad89dfc4134282b469157fa0820",
+  "cacheKey": "fa11afd0fe28438cb945ea1d1c33dade7373474479aa45a6627991f46c8882b6",
   "rubricVersion": "1",
   "scores": {
     "safety": 5,
@@ -9,12 +9,12 @@
     "arc_steering": 4
   },
   "justifications": {
-    "safety": "Atmospheric folk-horror dread only; no graphic violence, sexual content, or substance use, well within the established eerie-but-gentle register.",
-    "continuity": "Correctly reuses the kettle, bolted boathouse door, slicker-wrapped creature, Ivo's boots, the walking ridges, and the logbook dated tomorrow without contradicting or inventing conflicting specifics.",
-    "voice_match": "Maintains third-person limited past tense, long sea-cadenced sentences, and the same restrained dread-with-domestic-detail texture as prior paragraphs.",
-    "single_turn": "One unbroken paragraph that advances events from Mara's side, with no meta-commentary, labels, or resolution of the Writer's next move.",
-    "arc_steering": "Raises stakes by making the ridges return in daylight and naming a deadline, a clear escalation toward complication, though it leans on interior realization more than overt action."
+    "safety": "Eerie folk-horror atmosphere only; no graphic violence, sexual content, or substance use — well within general-audience range.",
+    "continuity": "Consistent with the still-warm kettle, the bolted boathouse, the pale creature in Ivo's slicker with Ivo's eyes, the near-Ivo voice, and Mara's shaken composure; invents nothing conflicting.",
+    "voice_match": "Matches the long-breathed, comma-linked past-tense third-person limited voice and the story's mix of homely detail and quiet dread.",
+    "single_turn": "One continuous paragraph that advances events with no meta-commentary, labels, or closing of another writer's beat.",
+    "arc_steering": "Escalates by raising the stakes with two sets of wet footsteps and the polite impostor at the door, though it ends on a held pause rather than pushing decisively toward climax."
   },
   "judgeModel": "claude-opus-5",
-  "judgedAt": "2026-09-13T01:51:45.946Z"
+  "judgedAt": "2026-09-14T04:28:59.551Z"
 }

@@ -1,6 +1,12 @@
 import { test, expect } from "@playwright/test";
 import { resetDatabase } from "../helpers/db";
 import { getMockCallCount, hangResponse, resetMockScript, setMockScript } from "../helpers/mock";
+import { BASE_URL } from "../constants";
+
+// Explicit on every direct request.post below — APIRequestContext doesn't
+// add an Origin the way a real browser fetch() does, and assertSameOrigin
+// (docs/adr/0048) requires one.
+const SAME_ORIGIN = { Origin: BASE_URL };
 
 // docs/plans/v4/02-admission-control.md — concurrency, not rate, is the thing
 // under test here. Every guest request in this suite shares one identity (no
@@ -30,8 +36,8 @@ test("a third concurrent generation from the same caller is refused cleanly, not
   // lease.ts), sized to tolerate a legitimate second tab, so both slots need
   // to be held before a third request has anything to be refused for.
   const held = [
-    request.post("/api/generate", { data: body }).catch(() => {}),
-    request.post("/api/generate", { data: body }).catch(() => {}),
+    request.post("/api/generate", { headers: SAME_ORIGIN, data: body }).catch(() => {}),
+    request.post("/api/generate", { headers: SAME_ORIGIN, data: body }).catch(() => {}),
   ];
 
   // There's no external signal for "both held requests have reached the
@@ -40,7 +46,7 @@ test("a third concurrent generation from the same caller is refused cleanly, not
   // already passed and route.ts has reached attemptFirstChunk() for each.
   await expect.poll(() => getMockCallCount()).toBeGreaterThanOrEqual(2);
 
-  const third = await request.post("/api/generate", { data: body });
+  const third = await request.post("/api/generate", { headers: SAME_ORIGIN, data: body });
 
   expect(third.status()).toBe(429);
   const thirdBody = await third.json();

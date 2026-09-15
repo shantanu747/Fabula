@@ -4,8 +4,11 @@ import { getDb } from "@/lib/db/client";
 import { stories } from "@/lib/db/schema";
 import { syncStoryParagraphs } from "@/lib/db/paragraphs";
 import { invalidateFeedPage0Cache } from "@/lib/db/feedCache";
+import { readJsonBody, STORY_BODY_MAX_BYTES } from "@/lib/http/readJsonBody";
 import { isStoryParagraphArray } from "@/lib/story/validation";
 import { guardStoriesWrite } from "@/lib/ratelimit/guard";
+import { assertSameOrigin } from "@/lib/security/assertSameOrigin";
+import { assertSessionCurrent } from "@/lib/auth/tokenVersion";
 
 /**
  * Persist-on-submit (docs/adr/0044-durable-writer-turns-and-idempotent-creation.md):
@@ -28,23 +31,25 @@ function isValidBody(body: unknown): body is SyncParagraphsBody & { storySoFar: 
 }
 
 export async function POST(request: Request, { params }: RouteContext<"/api/stories/[id]/paragraphs">) {
+  const originRejection = assertSameOrigin(request);
+  if (originRejection) return originRejection;
+
   const session = await auth();
   if (!session?.user?.id) {
     return Response.json({ error: "Not authenticated" }, { status: 401 });
   }
+  const revoked = await assertSessionCurrent(session.user);
+  if (revoked) return revoked;
   const limited = await guardStoriesWrite(session.user.id);
   if (limited) return limited;
   const { id } = await params;
 
-  let body: unknown;
-  try {
-    body = await request.json();
-  } catch {
-    return Response.json({ error: "Invalid JSON body" }, { status: 400 });
-  }
-  if (!isValidBody(body)) {
+  const parsed = await readJsonBody(request, STORY_BODY_MAX_BYTES);
+  if (!parsed.ok) return parsed.response;
+  if (!isValidBody(parsed.body)) {
     return Response.json({ error: "Invalid request body" }, { status: 400 });
   }
+  const body = parsed.body;
 
   const db = getDb();
   // Explicit columns, not SELECT * — same shape as /api/generate's own lookup

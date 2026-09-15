@@ -4,8 +4,11 @@ import { getDb } from "@/lib/db/client";
 import { stories, storyParagraphs } from "@/lib/db/schema";
 import { invalidateFeedPage0Cache } from "@/lib/db/feedCache";
 import { PRIVATE_NO_STORE } from "@/lib/http/cacheControl";
+import { readJsonBody } from "@/lib/http/readJsonBody";
 import { isValidTargetLength } from "@/lib/story/validation";
 import { guardStoriesRead, guardStoriesWrite } from "@/lib/ratelimit/guard";
+import { assertSameOrigin } from "@/lib/security/assertSameOrigin";
+import { assertSessionCurrent } from "@/lib/auth/tokenVersion";
 
 export async function GET(_request: Request, { params }: RouteContext<"/api/stories/[id]">) {
   const session = await auth();
@@ -82,22 +85,35 @@ function isValidPatchBody(body: unknown): body is PatchStoryBody {
 }
 
 export async function PATCH(request: Request, { params }: RouteContext<"/api/stories/[id]">) {
+  const originRejection = assertSameOrigin(request);
+  if (originRejection) return originRejection;
+
   const session = await auth();
   if (!session?.user?.id) {
     return Response.json({ error: "Not authenticated" }, { status: 401 });
   }
+  const revoked = await assertSessionCurrent(session.user);
+  if (revoked) return revoked;
   const limited = await guardStoriesWrite(session.user.id);
   if (limited) return limited;
   const { id } = await params;
 
-  let body: unknown;
-  try {
-    body = await request.json();
-  } catch {
-    return Response.json({ error: "Invalid JSON body" }, { status: 400 });
-  }
-  if (!isValidPatchBody(body)) {
+  const parsed = await readJsonBody(request);
+  if (!parsed.ok) return parsed.response;
+  if (!isValidPatchBody(parsed.body)) {
     return Response.json({ error: "Invalid request body" }, { status: 400 });
+  }
+  const body = parsed.body;
+
+  // Sharing is the one action with a third-party consequence, and the one
+  // gated on verification — writing is never gated (docs/adr/0046). An
+  // unverified Writer un-sharing (isShared: false) is unaffected; only the
+  // transition to shared is blocked.
+  if (body.isShared === true && !session.user.verified) {
+    return Response.json(
+      { error: "Verify your email before sharing a story.", reason: "unverified" },
+      { status: 403 }
+    );
   }
 
   const db = getDb();

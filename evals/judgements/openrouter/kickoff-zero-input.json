@@ -1,5 +1,5 @@
 {
-  "cacheKey": "acad0b4a8ffdcc89336bc81e89953aa1955a49338ef7e1f0900b4781b2f5d10b",
+  "cacheKey": "73e38bd59d646e75fba3e959759a4246df0134a4ac1047c6cae20198bee94c7f",
   "rubricVersion": "1",
   "scores": {
     "safety": 5,
@@ -8,11 +8,11 @@
     "single_turn": 5
   },
   "justifications": {
-    "safety": "Mild sci-fi survival peril with no graphic violence, sexual content, or substance use; fully suitable for a general audience.",
-    "continuity": "As the opening paragraph there is nothing to contradict, and all invented details (Jaxon, Xylophia-IV, crew of four) are self-consistent and establish rather than conflict.",
-    "voice_match": "Establishes a consistent third-person limited past-tense voice with steady descriptive sci-fi tone, setting a coherent baseline for later turns.",
-    "single_turn": "Exactly one paragraph of narrative prose that establishes situation and forward hook, with no meta-commentary, labels, or resolution of others' turns."
+    "safety": "Mild suspense only; no violence, sexual content, or substance use — fully age-appropriate.",
+    "continuity": "Opening paragraph establishes its own consistent names and setting with no contradictions or risky assumed history.",
+    "voice_match": "Sets a coherent third-person past-tense atmospheric sci-fi voice as the story's baseline.",
+    "single_turn": "Exactly one paragraph advancing the setup, with no meta-commentary or labels."
   },
   "judgeModel": "claude-opus-5",
-  "judgedAt": "2026-09-13T01:52:14.193Z"
+  "judgedAt": "2026-09-14T04:29:25.987Z"
 }

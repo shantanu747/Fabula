@@ -2,6 +2,12 @@ import { test, expect } from "@playwright/test";
 import { resetDatabase } from "../helpers/db";
 import { resetMockScript, setMockScript, streamResponse } from "../helpers/mock";
 import { errorAlert, startStory } from "../helpers/story";
+import { BASE_URL } from "../constants";
+
+// Explicit on every direct request.post below — APIRequestContext doesn't
+// add an Origin the way a real browser fetch() does, and assertSameOrigin
+// (docs/adr/0048) requires one.
+const SAME_ORIGIN = { Origin: BASE_URL };
 
 // ADR 0015 — Postgres-backed rate limiting.
 //
@@ -25,11 +31,11 @@ test("a guest is rate-limited past GENERATE_GUEST's capacity, and the UI shows a
 
   const body = { providerId: "anthropic", storySoFar: [] };
   for (let i = 0; i < 5; i++) {
-    const response = await request.post("/api/generate", { data: body });
+    const response = await request.post("/api/generate", { headers: SAME_ORIGIN, data: body });
     expect(response.status()).toBe(200);
   }
 
-  const limited = await request.post("/api/generate", { data: body });
+  const limited = await request.post("/api/generate", { headers: SAME_ORIGIN, data: body });
   expect(limited.status()).toBe(429);
   const retryAfter = Number(limited.headers()["retry-after"]);
   expect(retryAfter).toBeGreaterThanOrEqual(1);

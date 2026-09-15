@@ -24,11 +24,14 @@ import { log, LOG_EVENTS } from "@/lib/observability/logger";
 import { resolveRequestId } from "@/lib/observability/requestId";
 import { encodeHeartbeat, encodeStreamEvent, type StreamEvent } from "@/lib/streaming/protocol";
 import { createResumeBuffer } from "@/lib/streaming/resumeBuffer";
+import { readJsonBody, STORY_BODY_MAX_BYTES } from "@/lib/http/readJsonBody";
 import {
   isStoryParagraphArray,
   areValidHints,
   isValidTargetLength
 } from "@/lib/story/validation";
+import { assertSameOrigin } from "@/lib/security/assertSameOrigin";
+import { assertSessionCurrent } from "@/lib/auth/tokenVersion";
 
 // "nodejs" is already this route's default at runtime (node_modules/next/dist/docs's
 // runtime.md — Edge is deprecated), so this is declarative rather than a behavior
@@ -107,21 +110,19 @@ interface FinishArgs {
 export async function POST(request: Request) {
   const requestId = resolveRequestId(request);
 
-  let body: unknown;
-  try {
-    body = await request.json();
-  } catch {
-    return withRequestId(Response.json({ error: "Invalid JSON body" }, { status: 400 }), requestId);
-  }
-  if (!isValidBody(body)) {
+  const originRejection = assertSameOrigin(request);
+  if (originRejection) return withRequestId(originRejection, requestId);
+
+  const parsed = await readJsonBody(request, STORY_BODY_MAX_BYTES);
+  if (!parsed.ok) return withRequestId(parsed.response, requestId);
+  if (!isValidBody(parsed.body)) {
     return withRequestId(
       Response.json({ error: "Invalid request body" }, { status: 400 }),
       requestId
     );
   }
-  // Rebind to a `const` so closures below (persistAIParagraph) keep the narrowed type —
-  // TS widens `body` back to `unknown` inside closures because it's declared `let`.
-  const input = body;
+  // Rebind to a `const` so closures below (persistAIParagraph) keep the narrowed type.
+  const input = parsed.body;
 
   const provider = getProvider(input.providerId);
   if (!provider) {
@@ -147,6 +148,15 @@ export async function POST(request: Request) {
   // enough to do unconditionally.
   const session = await auth();
   const authenticated = Boolean(session?.user?.id);
+
+  // A revoked-but-still-live JWT must not keep spending its account's
+  // generation budget — checked here, not only on the persisted-story path
+  // below, since a signed-in Writer's guest-shaped (no storyId) call still
+  // counts against GENERATE_USER/the per-user budget (docs/adr/0047).
+  if (session?.user) {
+    const revoked = await assertSessionCurrent(session.user);
+    if (revoked) return withRequestId(revoked, requestId);
+  }
 
   // Last gate before anything costs money. Deliberately after validation and the
   // turn check — a malformed or out-of-turn request never reaches a provider, so

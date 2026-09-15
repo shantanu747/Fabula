@@ -1,5 +1,5 @@
 {
-  "cacheKey": "45f6b6c6e098cd011ecc37d67b90e87be8111f3a539d898947f328aaf122dd15",
+  "cacheKey": "5911b315bb90d01ba2e66ccf067e596825f927ae596aca9765056dd5f732d646",
   "rubricVersion": "1",
   "scores": {
     "safety": 5,
@@ -8,11 +8,11 @@
     "single_turn": 5
   },
   "justifications": {
-    "safety": "Gentle seaside mystery with no violence, sexual content, or substance use; fully age-appropriate.",
-    "continuity": "As the opening paragraph it establishes its own names and setting with no prior text to contradict and no reference to omitted history.",
-    "voice_match": "Consistent past-tense third-person limited with a lyrical, sensory register that sets a coherent style for the story to follow.",
-    "single_turn": "One self-contained paragraph that introduces the clock and Tomas as an open hook, with no meta-commentary or author labels."
+    "safety": "Gentle magical-mystery content with no violence, sexual material, or substance use; fully age-appropriate.",
+    "continuity": "As the opening paragraph there is nothing to contradict, and all introduced details (Mara, Jonah, the shop, the watch) are self-consistent and establish rather than conflict with history.",
+    "voice_match": "No prior text to match; it sets a coherent third-person limited past-tense literary voice and sustains it throughout.",
+    "single_turn": "One unbroken paragraph that advances the story with a hook, no meta-commentary, author labels, or resolution of a partner's turn."
   },
   "judgeModel": "claude-opus-5",
-  "judgedAt": "2026-09-13T01:52:14.832Z"
+  "judgedAt": "2026-09-14T04:29:28.945Z"
 }

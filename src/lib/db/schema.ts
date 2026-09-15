@@ -27,6 +27,11 @@ export const users = pgTable("user", {
   emailVerified: timestamp("emailVerified", { mode: "date" }),
   image: text("image"),
   passwordHash: text("passwordHash"),
+  // Stamped into the JWT at sign-in and compared against on every mutating
+  // route (docs/adr/0046-account-lifecycle-and-mailer-abstraction.md,
+  // docs/adr/0047-session-revocation-without-per-request-reads.md). Bumped by
+  // a password reset, which invalidates every session issued before it.
+  tokenVersion: integer("tokenVersion").notNull().default(0),
 });
 
 export const accounts = pgTable(
@@ -65,11 +70,41 @@ export const sessions = pgTable("session", {
 export const verificationTokens = pgTable(
   "verificationToken",
   {
+    // Repurposed here for our own email-verification flow (not Auth.js's
+    // built-in email provider, which this app doesn't use): `identifier` is
+    // the address being verified, `token` is a SHA-256 hash of the token
+    // emailed to the Writer, never the token itself (docs/adr/0046).
     identifier: text("identifier").notNull(),
     token: text("token").notNull(),
     expires: timestamp("expires", { mode: "date" }).notNull(),
   },
   (vt) => [primaryKey({ columns: [vt.identifier, vt.token] })]
+);
+
+/**
+ * Password reset tokens (docs/adr/0046). A separate table from
+ * `verificationTokens` rather than a shared shape: a reset token authorizes
+ * changing a credential, a verification token only flips a boolean, and
+ * conflating them would make a leaked verification link double as an account
+ * takeover vector. Token stored hashed, same reasoning as verificationTokens'
+ * `token` column — a leaked database of live reset tokens must not itself be
+ * a full compromise.
+ */
+export const passwordResetTokens = pgTable(
+  "password_reset_token",
+  {
+    tokenHash: text("tokenHash").primaryKey(),
+    userId: text("userId")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    expires: timestamp("expires", { mode: "date" }).notNull(),
+    // Null until consumed. Checked (not just relied on the row's deletion)
+    // so a reset that races a second request against the same token fails
+    // the second one cleanly instead of silently reusing it.
+    usedAt: timestamp("usedAt", { mode: "date" }),
+    createdAt: timestamp("createdAt", { mode: "date" }).notNull().defaultNow(),
+  },
+  (t) => [index().on(t.userId)]
 );
 
 // App-specific tables — a persisted mirror of the client-side StoryState/StoryParagraph

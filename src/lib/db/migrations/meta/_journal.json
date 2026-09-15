@@ -50,6 +50,13 @@
       "when": 1789330963834,
       "tag": "0006_add_story_idempotency_key",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1789355645422,
+      "tag": "0007_add_account_lifecycle",
+      "breakpoints": true
     }
   ]
 }

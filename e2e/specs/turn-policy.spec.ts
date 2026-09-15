@@ -2,6 +2,7 @@ import { test, expect } from "@playwright/test";
 import { resetDatabase } from "../helpers/db";
 import { resetMockScript, setMockScript, streamResponse } from "../helpers/mock";
 import { errorAlert, startStory, waitForAiParagraph } from "../helpers/story";
+import { BASE_URL } from "../constants";
 
 // ADR 0004 — strict turn-taking policy.
 
@@ -28,6 +29,10 @@ test.describe("turn-taking policy", () => {
 
   test("the server rejects an out-of-turn generation request with 409", async ({ request }) => {
     const response = await request.post("/api/generate", {
+      // Origin set explicitly — APIRequestContext doesn't add one the way a
+      // real browser fetch() does, and assertSameOrigin (docs/adr/0048)
+      // requires it.
+      headers: { Origin: BASE_URL },
       data: {
         providerId: "anthropic",
         storySoFar: [{ author: "ai", text: "The gate creaked on its hinge." }],

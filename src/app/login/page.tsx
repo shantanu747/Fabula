@@ -30,7 +30,14 @@ function LoginForm() {
     });
     setIsSubmitting(false);
     if (result?.error) {
-      setError("Incorrect email or password.");
+      // `code` (not `error`, which is always the generic "CredentialsSignin")
+      // is the one thing authorize() can set that safely reaches the client —
+      // see src/auth.ts's TooManyAttemptsError.
+      setError(
+        result.code === "too-many-attempts"
+          ? "Too many attempts. Try again in a few minutes."
+          : "Incorrect email or password."
+      );
       return;
     }
     router.push(safeCallbackUrl(rawCallbackUrl, window.location.origin));
@@ -77,9 +84,17 @@ function LoginForm() {
             />
           </div>
           <div>
-            <label className="field-label mb-2" htmlFor="password">
-              Password
-            </label>
+            <div className="flex items-baseline justify-between gap-3">
+              <label className="field-label mb-2" htmlFor="password">
+                Password
+              </label>
+              <Link
+                href="/forgot"
+                className="tap-target mb-2 text-[12px] text-accent-text underline decoration-accent/50 underline-offset-2"
+              >
+                Forgot password?
+              </Link>
+            </div>
             <input
               id="password"
               type="password"
