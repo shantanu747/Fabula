@@ -9,6 +9,7 @@ import { getMailer } from "@/lib/email/registry";
 import { passwordResetEmail } from "@/lib/email/templates";
 import { log, LOG_EVENTS } from "@/lib/observability/logger";
 import { hashIdentity } from "@/lib/ratelimit/policy";
+import { withRoute } from "@/lib/observability/withRoute";
 
 interface RequestBody {
   email: string;
@@ -27,7 +28,7 @@ const UNINFORMATIVE_RESPONSE = { ok: true, message: "If that address has an acco
  * has no password (a Google-only account) — the same uninformative-response
  * posture ADR 0011 established for registration, extended here (docs/adr/0046).
  */
-export async function POST(request: Request) {
+export const POST = withRoute("/api/auth/password/request", async (request: Request) => {
   const originRejection = assertSameOrigin(request);
   if (originRejection) return originRejection;
 
@@ -52,4 +53,4 @@ export async function POST(request: Request) {
   }
 
   return Response.json(UNINFORMATIVE_RESPONSE);
-}
+});

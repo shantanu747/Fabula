@@ -3,6 +3,7 @@ import { getDb } from "@/lib/db/client";
 import { users } from "@/lib/db/schema";
 import { verifyToken } from "@/lib/auth/verificationTokens";
 import { log, LOG_EVENTS } from "@/lib/observability/logger";
+import { withRoute } from "@/lib/observability/withRoute";
 
 /**
  * The link a Writer clicks from their inbox — necessarily a plain GET (an
@@ -13,19 +14,22 @@ import { log, LOG_EVENTS } from "@/lib/observability/logger";
  * needs none beyond a constant-time compare: guessing a 256-bit token isn't
  * a realistic target regardless of attempt count (docs/adr/0048).
  */
-export async function GET(request: Request, { params }: RouteContext<"/api/auth/verify/[token]">) {
-  const { token } = await params;
+export const GET = withRoute(
+  "/api/auth/verify/[token]",
+  async (request: Request, { params }: RouteContext<"/api/auth/verify/[token]">) => {
+    const { token } = await params;
 
-  const result = await verifyToken(token);
-  if (!result) {
-    return Response.redirect(new URL("/verify?status=invalid", request.url));
+    const result = await verifyToken(token);
+    if (!result) {
+      return Response.redirect(new URL("/verify?status=invalid", request.url));
+    }
+
+    const [user] = await getDb().select({ id: users.id }).from(users).where(eq(users.email, result.email));
+    if (user) {
+      await getDb().update(users).set({ emailVerified: new Date() }).where(eq(users.id, user.id));
+      log.info(LOG_EVENTS.EMAIL_VERIFIED, {});
+    }
+
+    return Response.redirect(new URL("/verify?status=success", request.url));
   }
-
-  const [user] = await getDb().select({ id: users.id }).from(users).where(eq(users.email, result.email));
-  if (user) {
-    await getDb().update(users).set({ emailVerified: new Date() }).where(eq(users.id, user.id));
-    log.info(LOG_EVENTS.EMAIL_VERIFIED, {});
-  }
-
-  return Response.redirect(new URL("/verify?status=success", request.url));
-}
+);

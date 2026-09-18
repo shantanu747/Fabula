@@ -3,8 +3,9 @@ import { getDb } from "@/lib/db/client";
 import { decodeCursor, getFeedPage } from "@/lib/db/feedAndLibrary";
 import { PRIVATE_NO_STORE } from "@/lib/http/cacheControl";
 import { guardFeedRead } from "@/lib/ratelimit/guard";
+import { withRoute } from "@/lib/observability/withRoute";
 
-export async function GET(request: Request) {
+export const GET = withRoute("/api/feed", async (request: Request) => {
   const session = await auth();
   if (!session?.user?.id) {
     return Response.json({ error: "Not authenticated" }, { status: 401 });
@@ -23,4 +24,4 @@ export async function GET(request: Request) {
 
   const { rows, nextCursor } = await getFeedPage(getDb(), cursor);
   return Response.json({ stories: rows, nextCursor }, { headers: { "Cache-Control": PRIVATE_NO_STORE } });
-}
+});

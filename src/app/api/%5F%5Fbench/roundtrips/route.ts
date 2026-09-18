@@ -1,4 +1,5 @@
 import { getRoundtripCounter } from "../../../../../bench/roundtrips";
+import { withRoute } from "@/lib/observability/withRoute";
 
 /**
  * Dev-only instrumentation for bench/harness.ts (docs/plans/v4/01-load-harness.md,
@@ -19,7 +20,7 @@ import { getRoundtripCounter } from "../../../../../bench/roundtrips";
  * (the URL-encoded underscore) for a segment that must start with one on the
  * wire; the URL path is still exactly `/api/__bench/roundtrips`.
  */
-export async function GET(): Promise<Response> {
+export const GET = withRoute("/api/__bench/roundtrips", async (): Promise<Response> => {
   if (process.env.BENCH_INSTRUMENTATION !== "1") {
     return new Response(null, { status: 404 });
   }
@@ -27,4 +28,4 @@ export async function GET(): Promise<Response> {
   const counts = { ...counter.counts, total: counter.total() };
   counter.reset();
   return Response.json(counts);
-}
+});

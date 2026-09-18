@@ -1,4 +1,5 @@
 import { __getSentEmailsForTests } from "@/lib/email/console";
+import { withRoute } from "@/lib/observability/withRoute";
 
 /**
  * E2E-only recovery of the verification/reset link ConsoleMailer "sent"
@@ -12,7 +13,7 @@ import { __getSentEmailsForTests } from "@/lib/email/console";
  * naming trick as that route: `%5F` is the escape hatch for a path segment
  * that must start with a literal underscore on the wire.
  */
-export async function GET(request: Request): Promise<Response> {
+export const GET = withRoute("/api/__test/last-email", async (request: Request): Promise<Response> => {
   if (process.env.E2E_TEST_MODE !== "1") {
     return new Response(null, { status: 404 });
   }
@@ -24,4 +25,4 @@ export async function GET(request: Request): Promise<Response> {
   if (!match) return new Response(null, { status: 404 });
 
   return Response.json({ subject: match.subject, text: match.text });
-}
+});

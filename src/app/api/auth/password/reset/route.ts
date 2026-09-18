@@ -8,6 +8,7 @@ import { readJsonBody } from "@/lib/http/readJsonBody";
 import { verifyAndConsumePasswordResetToken } from "@/lib/auth/passwordResetTokens";
 import { bumpTokenVersion } from "@/lib/auth/tokenVersion";
 import { log, LOG_EVENTS } from "@/lib/observability/logger";
+import { withRoute } from "@/lib/observability/withRoute";
 
 const MIN_PASSWORD_LENGTH = 8;
 const MAX_PASSWORD_BYTES = 72;
@@ -40,7 +41,7 @@ function passwordByteLength(password: string): number {
  * account, so "invalid or expired link" reveals nothing about whether an
  * address exists.
  */
-export async function POST(request: Request) {
+export const POST = withRoute("/api/auth/password/reset", async (request: Request) => {
   const originRejection = assertSameOrigin(request);
   if (originRejection) return originRejection;
 
@@ -70,4 +71,4 @@ export async function POST(request: Request) {
   log.info(LOG_EVENTS.PASSWORD_RESET_COMPLETED, {});
 
   return Response.json({ ok: true });
-}
+});

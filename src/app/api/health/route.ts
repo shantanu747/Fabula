@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm";
 import { getDb, hasDatabase } from "@/lib/db/client";
 import { guardHealth } from "@/lib/ratelimit/guard";
 import { PROVIDERS } from "@/lib/providers/registry";
+import { withRoute } from "@/lib/observability/withRoute";
 
 export const dynamic = "force-dynamic";
 
@@ -49,7 +50,7 @@ function checkProviders(): Record<string, boolean> {
   return status;
 }
 
-export async function GET(request: Request) {
+export const GET = withRoute("/api/health", async (request: Request) => {
   const limited = await guardHealth(request);
   if (limited) return limited;
 
@@ -69,4 +70,4 @@ export async function GET(request: Request) {
     { status, checks: { database, providers } },
     { status: status === "ok" ? 200 : 503, headers: { "Cache-Control": "no-store" } }
   );
-}
+});

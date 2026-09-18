@@ -10,6 +10,7 @@ import { areValidHints, isValidTargetLength } from "@/lib/story/validation";
 import { guardStoriesRead, guardStoriesWrite } from "@/lib/ratelimit/guard";
 import { assertSameOrigin } from "@/lib/security/assertSameOrigin";
 import { assertSessionCurrent } from "@/lib/auth/tokenVersion";
+import { withRoute } from "@/lib/observability/withRoute";
 
 interface CreateStoryBody {
   theme?: string;
@@ -44,7 +45,7 @@ function readIdempotencyKey(request: Request): string | undefined {
   return trimmed;
 }
 
-export async function POST(request: Request) {
+export const POST = withRoute("/api/stories", async (request: Request) => {
   const originRejection = assertSameOrigin(request);
   if (originRejection) return originRejection;
 
@@ -107,9 +108,9 @@ export async function POST(request: Request) {
 
     return Response.json({ id: existing.id }, { status: 200 });
   }
-}
+});
 
-export async function GET(request: Request) {
+export const GET = withRoute("/api/stories", async (request: Request) => {
   const session = await auth();
   if (!session?.user?.id) {
     return Response.json({ error: "Not authenticated" }, { status: 401 });
@@ -126,4 +127,4 @@ export async function GET(request: Request) {
 
   const { rows, nextCursor } = await getLibraryPage(getDb(), session.user.id, cursor);
   return Response.json({ stories: rows, nextCursor }, { headers: { "Cache-Control": PRIVATE_NO_STORE } });
-}
+});

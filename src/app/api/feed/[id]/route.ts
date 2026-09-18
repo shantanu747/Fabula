@@ -4,8 +4,9 @@ import { getDb } from "@/lib/db/client";
 import { stories, storyParagraphs, users } from "@/lib/db/schema";
 import { PRIVATE_NO_STORE } from "@/lib/http/cacheControl";
 import { guardFeedRead } from "@/lib/ratelimit/guard";
+import { withRoute } from "@/lib/observability/withRoute";
 
-export async function GET(_request: Request, { params }: RouteContext<"/api/feed/[id]">) {
+export const GET = withRoute("/api/feed/[id]", async (_request: Request, { params }: RouteContext<"/api/feed/[id]">) => {
   const session = await auth();
   if (!session?.user?.id) {
     return Response.json({ error: "Not authenticated" }, { status: 401 });
@@ -53,4 +54,4 @@ export async function GET(_request: Request, { params }: RouteContext<"/api/feed
     },
     { headers: { "Cache-Control": PRIVATE_NO_STORE } }
   );
-}
+});
