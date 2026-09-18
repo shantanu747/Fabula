@@ -1,0 +1,10 @@
+# Scrapes the OTel Collector's own Prometheus exporter (see
+# otel-collector-config.yaml's `exporters.prometheus`), not the app directly —
+# the app never speaks Prometheus's pull model, only OTLP push.
+global:
+  scrape_interval: 5s
+
+scrape_configs:
+  - job_name: "otel-collector"
+    static_configs:
+      - targets: ["otel-collector:8889"]

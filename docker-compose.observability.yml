@@ -1,0 +1,43 @@
+# Local OTel collector + Prometheus + Grafana + Jaeger stack (docs/adr/0049).
+# Metrics you cannot look at are not observability — the same reasoning that
+# put the Jaeger-only instructions in README.md originally, extended once
+# metrics existed to actually view. Entirely optional for `npm run dev`: with
+# no OTEL_EXPORTER_OTLP_ENDPOINT set, instrumentation stays a no-op (ADR 0022).
+#
+# Usage: see README.md's "Observability locally" section.
+services:
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.116.1
+    command: ["--config=/etc/otel-collector-config.yaml"]
+    volumes:
+      - ./observability/otel-collector-config.yaml:/etc/otel-collector-config.yaml:ro
+    ports:
+      # OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 — the one port the
+      # app (running on the host, not in this compose file) actually talks to.
+      - "4318:4318"
+      - "8889:8889" # Prometheus-format scrape endpoint, for debugging by eye
+    depends_on:
+      - jaeger
+
+  jaeger:
+    image: jaegertracing/all-in-one:1.63.0
+    ports:
+      - "16686:16686" # UI — http://localhost:16686
+
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    volumes:
+      - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9090:9090" # UI — http://localhost:9090
+
+  grafana:
+    image: grafana/grafana:11.3.1
+    ports:
+      - "3001:3000" # UI — http://localhost:3001 (3000 is Next's own dev port)
+    volumes:
+      - ./observability/grafana-datasources.yml:/etc/grafana/provisioning/datasources/datasources.yml:ro
+    environment:
+      # Local-only convenience — this stack is never exposed beyond localhost.
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Admin

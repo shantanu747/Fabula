@@ -1,3 +1,4 @@
+import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitest/config";
 
 /**
@@ -13,8 +14,20 @@ import { defineConfig } from "vitest/config";
  * needs a real Postgres and belongs to vitest.db.config.mts's project instead —
  * ADR 0014 records what happens when two projects' globs overlap (one silently
  * never runs), so the two stay disjoint by filename, not by directory alone.
+ *
+ * The `@` alias (matching vitest.unit.config.mts/vitest.db.config.mts) is
+ * needed as of docs/adr/00NN: db/tracing.ts's *value* import of
+ * requestContext.ts (not the type-only `@/lib/db/types` imports this
+ * project's scripts already had, which esbuild strips entirely, needing no
+ * runtime resolution) pulls a real `@/`-aliased module in transitively from
+ * scripts/slo-report.mts's own import of generationEvents.ts.
  */
 export default defineConfig({
+  resolve: {
+    alias: {
+      "@": fileURLToPath(new URL("./src", import.meta.url)),
+    },
+  },
   test: {
     name: "scripts",
     environment: "node",
