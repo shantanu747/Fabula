@@ -200,7 +200,12 @@ class CookieJar {
 async function registerAndSignIn(baseUrl: string, email: string, password: string): Promise<{ cookie: string; userLabel: string }> {
   const registerRes = await fetch(`${baseUrl}/api/auth/register`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    // Origin is required, not just Content-Type — assertSameOrigin (ADR 0048,
+    // merged in Plan 6 after this harness was written) rejects a same-origin
+    // POST with no Origin header at all, indistinguishable from a bare
+    // cross-site <form> submission. A real browser always sends one; this
+    // harness has to say so explicitly since fetch() from a Node script does not.
+    headers: { "Content-Type": "application/json", Origin: baseUrl },
     body: JSON.stringify({ name: "Bench Writer", email, password }),
   });
   if (!registerRes.ok) {
@@ -248,7 +253,8 @@ interface StoryParagraph {
 async function createStory(baseUrl: string, cookie: string): Promise<string> {
   const res = await fetch(`${baseUrl}/api/stories`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", Cookie: cookie },
+    // Origin required — see registerAndSignIn's comment on assertSameOrigin (ADR 0048).
+    headers: { "Content-Type": "application/json", Cookie: cookie, Origin: baseUrl },
     body: JSON.stringify({ theme: "Benchmark", targetLength: 30, selectedProviderId: "anthropic" }),
   });
   if (!res.ok) throw new Error(`bench/harness: story creation failed (${res.status})`);
@@ -275,7 +281,8 @@ async function timedGenerate(
   const start = performance.now();
   const res = await fetch(`${baseUrl}/api/generate`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", Cookie: cookie },
+    // Origin required — see registerAndSignIn's comment on assertSameOrigin (ADR 0048).
+    headers: { "Content-Type": "application/json", Cookie: cookie, Origin: baseUrl },
     body: payload,
   });
 
