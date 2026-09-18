@@ -1,0 +1,34 @@
+# Local-only OTel Collector config (docs/adr/0049, README's "Observability locally"
+# section). The app's OTEL_EXPORTER_OTLP_ENDPOINT points here — this fans traces
+# out to Jaeger and metrics out to Prometheus, so the app itself only ever talks
+# standard OTLP, never a specific backend (the same property ADR 0022 established).
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  batch:
+
+exporters:
+  otlp/jaeger:
+    endpoint: jaeger:4317
+    tls:
+      insecure: true
+  prometheus:
+    endpoint: 0.0.0.0:8889
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [otlp/jaeger]
+    metrics:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [prometheus]

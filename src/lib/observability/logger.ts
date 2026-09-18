@@ -13,15 +13,20 @@ export const LOG_EVENTS = {
   PERSIST_SUPERSEDED: "persist.superseded",
   PERSIST_FAILED: "persist.failed",
   RATELIMIT_REJECTED: "ratelimit.rejected",
+  RATELIMIT_ERROR: "ratelimit.error",
   REGISTER_REJECTED: "register.rejected",
   ADMISSION_REJECTED: "admission.rejected",
   BUDGET_REJECTED: "budget.rejected",
+  BUDGET_ERROR: "budget.error",
   BREAKER_REJECTED: "breaker.rejected",
   LOGIN_FAILED: "auth.login_failed",
   LOGIN_SUCCEEDED: "auth.login_succeeded",
   EMAIL_VERIFIED: "auth.email_verified",
   PASSWORD_RESET_REQUESTED: "auth.password_reset_requested",
   PASSWORD_RESET_COMPLETED: "auth.password_reset_completed",
+  ROUTE_ERROR: "route.error",
+  CLIENT_ERROR: "client.error",
+  CLIENT_VITAL: "client.vital",
 } as const;
 
 export type LogEvent = (typeof LOG_EVENTS)[keyof typeof LOG_EVENTS];
@@ -57,6 +62,16 @@ const ALLOWED_FIELDS = new Set([
   // auth event can be correlated across a log stream without the database
   // of logs becoming a record of who used the app (docs/adr/0046).
   "identityHash",
+  // A fixed, developer-chosen path template ("/api/stories/[id]"), never an
+  // interpolated URL — the same bounded-string posture as "policy" above
+  // (docs/adr/0049). withRoute.ts is the only writer of "route" and
+  // "statusCode"; the client telemetry route is the only writer of
+  // "metric"/"value"/"digest".
+  "route",
+  "statusCode",
+  "metric",
+  "value",
+  "digest",
 ]);
 
 export type LogFields = Record<string, unknown>;
@@ -107,8 +122,29 @@ function emit(level: LogLevel, event: LogEvent, fields: LogFields): void {
   console.log(JSON.stringify(line));
 }
 
+/**
+ * `rate` in [0, 1]: the fraction of calls that actually emit. `undefined`
+ * (the default every caller gets unless it opts in) always emits — sampling
+ * is something a call site chooses for a specific, named, high-volume event,
+ * never an ambient default the logger applies on its own.
+ */
+function shouldEmit(rate: number | undefined): boolean {
+  if (rate === undefined || rate >= 1) return true;
+  if (rate <= 0) return false;
+  return Math.random() < rate;
+}
+
 export const log = {
-  info: (event: LogEvent, fields: LogFields = {}) => emit("info", event, fields),
+  /**
+   * `sampleRate` exists on `info` only — never on `warn`/`error`. That's the
+   * structural half of "errors are never sampled" (docs/adr/0049): there is
+   * no parameter here to pass a rate to, so a call site literally cannot
+   * sample an error even by mistake, the same "impossible, not just
+   * discouraged" posture as the redaction allowlist above.
+   */
+  info: (event: LogEvent, fields: LogFields = {}, options: { sampleRate?: number } = {}) => {
+    if (shouldEmit(options.sampleRate)) emit("info", event, fields);
+  },
   warn: (event: LogEvent, fields: LogFields = {}) => emit("warn", event, fields),
   error: (event: LogEvent, fields: LogFields = {}) => emit("error", event, fields),
 };

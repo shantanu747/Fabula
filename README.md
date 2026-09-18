@@ -146,23 +146,38 @@ checks above, and fails with the same docker commands if it can't connect).
 
 ### Observability locally
 
-Traces export over standard OTLP env vars — no code change to point at a
-different backend, and unset means instrumentation is a no-op. To see a real
-trace locally:
+Traces *and metrics* export over standard OTLP env vars — no code change to
+point at a different backend, and with `OTEL_EXPORTER_OTLP_ENDPOINT` unset,
+instrumentation is a no-op (ADR 0022, ADR 0049). Metrics you cannot look at
+are not observability, so the local loop is a full collector stack — OTel
+Collector, Jaeger (traces), Prometheus (metrics), and Grafana (both) — rather
+than Jaeger alone:
 
 ```bash
-docker run -d --name fabula-jaeger -p 16686:16686 -p 4318:4318 \
-  jaegertracing/all-in-one:latest
+docker compose -f docker-compose.observability.yml up -d
 OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 npm run dev
-# then write a paragraph and open http://localhost:16686
+# write a paragraph, then:
+#   http://localhost:16686  — Jaeger UI (traces)
+#   http://localhost:9090   — Prometheus UI (raw metric queries)
+#   http://localhost:3001   — Grafana (both, pre-wired as datasources)
 ```
 
 A `fabula.generate` span should appear per generation, with provider/model,
 token counts, TTFT, total duration, and estimated cost as attributes — never
 prose, a theme, a character list, an email, or an IP (see
-[`docs/adr/0022`](docs/adr/0022-observability-and-cost-accounting.md)).
+[`docs/adr/0022`](docs/adr/0022-observability-and-cost-accounting.md)). It's
+nested under an `http.route` span for every route now (ADR 0049), and every
+database call in between appears as its own child `db.*` span. On the metrics
+side, `fabula.generation.ttft`/`fabula.generation.outcome`/
+`fabula.db.roundtrips` and the rest of ADR 0049's instruments should be
+queryable in Prometheus within a few seconds of a generation completing.
+
 `GET /api/health` reports app, database, and provider-key-configuration
 status, and is unauthenticated by design so it still works if auth is broken.
+
+`npm run slo-report` prints attainment against the operational targets in
+[`src/lib/observability/slo.ts`](src/lib/observability/slo.ts), queried from
+`generation_event` — needs `DATABASE_URL` but not the collector stack above.
 
 ## Project layout
 

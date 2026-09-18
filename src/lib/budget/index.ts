@@ -1,6 +1,7 @@
 import { getKv, hasKv, withKvTimeout } from "@/lib/kv/client";
 import { sumGlobalCostSince, sumGuestCostSince, sumUserCostSince } from "@/lib/db/generationEvents";
 import type { AppDatabase } from "@/lib/db/types";
+import { log, LOG_EVENTS } from "@/lib/observability/logger";
 
 /**
  * Daily spend caps, enforced from `generation_event.costUsd` (recorded since
@@ -132,7 +133,7 @@ async function checkGlobalCap(db: AppDatabase): Promise<boolean> {
     const spend = await sumGlobalCostSince(db, utcDayStart());
     return spend < GLOBAL_DAILY_CAP_USD;
   } catch (err) {
-    console.error("[budget] global cap check failed against both Redis and Postgres, allowing:", err);
+    log.error(LOG_EVENTS.BUDGET_ERROR, { reason: "global_cap_check_failed", err });
     return true;
   }
 }
@@ -185,9 +186,7 @@ export async function recordSpend(identity: BudgetIdentity, costUsd: number | un
   let effectiveCost = costUsd;
   if (effectiveCost === undefined) {
     effectiveCost = UNPRICED_MODEL_FALLBACK_COST_USD;
-    console.warn(
-      `[budget] generation with no known price counted at the conservative default of $${UNPRICED_MODEL_FALLBACK_COST_USD}`
-    );
+    log.warn(LOG_EVENTS.BUDGET_ERROR, { reason: "unpriced_model_fallback" });
   }
 
   const identityKey = identity.type === "user" ? userKey(identity.userId) : guestKey();

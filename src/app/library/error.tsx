@@ -1,6 +1,7 @@
 "use client"; // Error boundaries must be Client Components.
 
 import { useEffect } from "react";
+import { reportClientError } from "@/lib/observability/reportClientError";
 
 /** AppHeader is hoisted to library/layout.tsx, outside this boundary — a
  *  failure loading the library replaces this content but leaves the header
@@ -14,6 +15,7 @@ export default function LibraryError({
 }) {
   useEffect(() => {
     console.error("[library error boundary]", error);
+    reportClientError(error.digest, typeof window !== "undefined" ? window.location.pathname : "");
   }, [error]);
 
   return (

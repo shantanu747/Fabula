@@ -1,16 +1,16 @@
 {
   "_comment": "First-load JS budgets (gzipped bytes), checked by scripts/bundle-budget.mts after `next build`. JSON has no real comment syntax, so the measured baseline lives in _measuredAt/_baseline below instead \u2014 see docs/adr/0027-ci-quality-gates.md. Each budget is the baseline plus ~10% headroom, rounded. Re-measure and update both this file and _baseline together if a route's JS genuinely needs to grow; do not just raise the number to make a failing build pass.",
-  "_measuredAt": "2026-09-13",
+  "_measuredAt": "2026-09-17",
   "_baseline": {
-    "/": 17081,
-    "/story": 17344,
-    "/feed": 14464,
-    "/library": 15179
+    "/": 20462,
+    "/story": 20737,
+    "/feed": 17777,
+    "/library": 18702
   },
   "budgets": {
-    "/": 17300,
-    "/story": 19100,
-    "/feed": 14600,
-    "/library": 16700
+    "/": 22500,
+    "/story": 22800,
+    "/feed": 19600,
+    "/library": 20600
   }
 }

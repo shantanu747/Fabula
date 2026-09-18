@@ -1,4 +1,5 @@
 import { getKv, hasKv, withKvTimeout } from "@/lib/kv/client";
+import { recordProviderCircuit } from "@/lib/observability/metrics";
 
 /**
  * Per-provider circuit breaker (docs/adr/0045-provider-circuit-breaker.md).
@@ -106,7 +107,10 @@ export async function checkBreaker(providerId: string): Promise<BreakerDecision>
   );
 
   if (result === undefined || result === "allow") return { allowed: true, isProbe: false };
-  if (result === "probe") return { allowed: true, isProbe: true };
+  if (result === "probe") {
+    recordProviderCircuit(providerId, "probe_allowed");
+    return { allowed: true, isProbe: true };
+  }
   return { allowed: false };
 }
 
@@ -121,6 +125,11 @@ export async function checkBreaker(providerId: string): Promise<BreakerDecision>
  * probe itself IS the "one more confirming failure" here, deliberately not
  * requiring another five before re-opening.
  */
+// Returns 2 when this call just (re-)opened the breaker — either branch that
+// sets state='open', including the probe-failed re-open — and 1 when it only
+// advanced the failure count without transitioning state. recordBreakerOutcome
+// uses that distinction to record a `fabula.provider.circuit` "opened"
+// transition exactly once per real state change, not once per failure.
 const RECORD_FAILURE_SCRIPT = `
 local stateKey = KEYS[1]
 local probeKey = KEYS[2]
@@ -134,13 +143,14 @@ local state = redis.call('HGET', stateKey, 'state')
 if state == 'open' then
   redis.call('HSET', stateKey, 'state', 'open', 'openedAt', tostring(now))
   redis.call('EXPIRE', stateKey, stateTtl)
-  return 1
+  return 2
 end
 
 local failures = tonumber(redis.call('HINCRBY', stateKey, 'failures', 1))
 redis.call('EXPIRE', stateKey, stateTtl)
 if failures >= threshold then
   redis.call('HSET', stateKey, 'state', 'open', 'openedAt', tostring(now))
+  return 2
 end
 return 1
 `;
@@ -158,19 +168,23 @@ export async function recordBreakerOutcome(providerId: string, outcome: "success
   if (!hasKv()) return;
 
   if (outcome === "success") {
-    await withKvTimeout(async () => {
-      await getKv().del(stateKey(providerId), probeKey(providerId));
-    });
+    const deleted = await withKvTimeout(() => getKv().del(stateKey(providerId), probeKey(providerId)));
+    // `del`'s own return is the count of keys that actually existed — 0 means
+    // there was no failure-tracking state to clear (the ordinary case: a
+    // success from a breaker that was already closed), so only a non-zero
+    // count is a real open/counting-to-closed transition worth recording.
+    if (deleted !== undefined && deleted > 0) recordProviderCircuit(providerId, "closed");
     return;
   }
 
-  await withKvTimeout(() =>
+  const result = await withKvTimeout(() =>
     getKv().eval<string[], number>(
       RECORD_FAILURE_SCRIPT,
       [stateKey(providerId), probeKey(providerId)],
       [String(Date.now()), String(FAILURE_THRESHOLD), String(STATE_TTL_SECONDS)]
     )
   );
+  if (result === 2) recordProviderCircuit(providerId, "opened");
 }
 
 /** Whether a thrown provider-SDK error is a 429 (quota/rate-limit), which

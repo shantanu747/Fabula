@@ -42,14 +42,27 @@ describe("acquireLease — with a working backend", () => {
     expect(other.acquired).toBe(true);
   });
 
-  it("reports a short, fixed Retry-After on refusal rather than a computed one", async () => {
+  it("reports a short, fixed Retry-After and a per_user reason on a per-identity refusal", async () => {
     __setKvForTests(createFakeAdmissionKv());
     await acquireLease("writer-1");
     await acquireLease("writer-1");
 
     const refused = await acquireLease("writer-1");
 
-    expect(refused).toEqual({ acquired: false, retryAfterSeconds: 5 });
+    expect(refused).toEqual({ acquired: false, retryAfterSeconds: 5, reason: "per_user" });
+  });
+
+  it("reports a global reason when the identity cap has room but the global cap is exhausted", async () => {
+    const kv = createFakeAdmissionKv();
+    __setKvForTests(kv);
+    // Seed the global counter directly at its cap without touching any one
+    // identity's own count, so the next acquire is refused by the global
+    // check specifically, not the per-identity one.
+    kv.counts.set("admission:global", 50);
+
+    const refused = await acquireLease("writer-1");
+
+    expect(refused).toEqual({ acquired: false, retryAfterSeconds: 5, reason: "global" });
   });
 
   it("frees a slot on release, letting a subsequent acquire succeed", async () => {

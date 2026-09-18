@@ -26,7 +26,7 @@ export default defineProject({
     environment: "node",
     include: ["src/**/*.db.test.{ts,tsx}", "bench/**/*.db.test.{ts,tsx}"],
     globalSetup: ["./src/test/global-setup-db.ts"],
-    setupFiles: ["./src/test/setup-db.ts"],
+    setupFiles: ["./src/test/setup-db.ts", "./src/test/setup-otel-context.ts"],
     // Database-per-worker keyed on VITEST_POOL_ID. `forks` gives each worker a
     // stable id for the lifetime of the run, which is what makes that safe.
     pool: "forks",

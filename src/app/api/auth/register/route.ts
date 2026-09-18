@@ -9,6 +9,7 @@ import { hashIdentity } from "@/lib/ratelimit/policy";
 import { createVerificationToken } from "@/lib/auth/verificationTokens";
 import { getMailer } from "@/lib/email/registry";
 import { verificationEmail } from "@/lib/email/templates";
+import { withRoute } from "@/lib/observability/withRoute";
 
 const MAX_NAME_LENGTH = 200;
 const MAX_EMAIL_LENGTH = 320; // RFC 5321's own upper bound on a mailbox address
@@ -48,7 +49,7 @@ function passwordByteLength(password: string): number {
 // The Credentials provider (src/auth.ts) has no built-in signup — this endpoint creates
 // the user row it later authenticates against. The client calls signIn("credentials", …)
 // immediately after a successful response here.
-export async function POST(request: Request) {
+export const POST = withRoute("/api/auth/register", async (request: Request) => {
   const originRejection = assertSameOrigin(request);
   if (originRejection) return originRejection;
 
@@ -109,4 +110,4 @@ export async function POST(request: Request) {
   }
 
   return Response.json({ ok: true }, { status: 201 });
-}
+});

@@ -5,6 +5,7 @@ import { users } from "@/lib/db/schema";
 import { guardLogin } from "@/lib/ratelimit/guard";
 import { hashIdentity } from "@/lib/ratelimit/policy";
 import { log, LOG_EVENTS } from "@/lib/observability/logger";
+import { recordAuthLogin } from "@/lib/observability/metrics";
 import { TooManyAttemptsError } from "./errors";
 
 /**
@@ -59,6 +60,7 @@ export async function authorizeCredentials(
   const limited = await guardLogin(request, email);
   if (limited) {
     log.warn(LOG_EVENTS.LOGIN_FAILED, { reason: "rate_limited", identityHash });
+    recordAuthLogin("rate_limited");
     throw new TooManyAttemptsError();
   }
 
@@ -68,10 +70,16 @@ export async function authorizeCredentials(
 
   if (!user?.passwordHash || !valid) {
     log.warn(LOG_EVENTS.LOGIN_FAILED, { reason: "invalid_credentials", identityHash });
+    // Never split further (e.g. "unknown_user" vs "bad_password") — that
+    // would reopen exactly the account-enumeration channel the dummy-hash
+    // compare above exists to close, through a clearer signal than response
+    // timing ever was (docs/adr/0049).
+    recordAuthLogin("invalid_credentials");
     return null;
   }
 
   log.info(LOG_EVENTS.LOGIN_SUCCEEDED, { identityHash });
+  recordAuthLogin("success");
   return {
     id: user.id,
     name: user.name,

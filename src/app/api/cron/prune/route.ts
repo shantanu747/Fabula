@@ -2,6 +2,8 @@ import { createHash, timingSafeEqual } from "node:crypto";
 import { sql } from "drizzle-orm";
 import { getDb, hasDatabase } from "@/lib/db/client";
 import { rateLimitBuckets } from "@/lib/db/schema";
+import { log, LOG_EVENTS } from "@/lib/observability/logger";
+import { withRoute } from "@/lib/observability/withRoute";
 
 /**
  * Closes ADR 0015's named gap: "nothing prunes [rate_limit_bucket rows]... a
@@ -33,10 +35,10 @@ function timingSafeEqualSecret(provided: string, expected: string): boolean {
 // Vercel Cron invokes a scheduled route with GET, not POST, and attaches
 // `Authorization: Bearer $CRON_SECRET` itself when the project defines that
 // env var — see vercel.json's `crons` entry for this route's schedule.
-export async function GET(request: Request) {
+export const GET = withRoute("/api/cron/prune", async (request: Request) => {
   const expected = process.env.CRON_SECRET;
   if (!expected) {
-    console.error("[cron/prune] CRON_SECRET is not configured — refusing to run");
+    log.error(LOG_EVENTS.ROUTE_ERROR, { route: "/api/cron/prune", reason: "cron_secret_not_configured" });
     return Response.json({ error: "Not configured" }, { status: 503 });
   }
 
@@ -61,4 +63,4 @@ export async function GET(request: Request) {
   `);
 
   return Response.json({ pruned: result.rows.length });
-}
+});

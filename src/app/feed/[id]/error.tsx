@@ -1,6 +1,7 @@
 "use client"; // Error boundaries must be Client Components.
 
 import { useEffect } from "react";
+import { reportClientError } from "@/lib/observability/reportClientError";
 
 /** Nearer than feed/error.tsx, so it — not the parent — handles a failure
  *  loading this specific shared story (Next always resolves to the closest
@@ -16,6 +17,7 @@ export default function SharedStoryError({
 }) {
   useEffect(() => {
     console.error("[shared story error boundary]", error);
+    reportClientError(error.digest, typeof window !== "undefined" ? window.location.pathname : "");
   }, [error]);
 
   return (

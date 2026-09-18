@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Cormorant_Garamond, Lora } from "next/font/google";
 import { auth } from "@/auth";
 import { getProviderList } from "@/lib/providers/list";
+import { WebVitals } from "@/components/WebVitals";
 import { Providers } from "./providers";
 import "./globals.css";
 
@@ -38,6 +39,7 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
       className={`${heading.variable} ${body.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col">
+        <WebVitals />
         <Providers session={session} providers={providers}>
           {children}
         </Providers>

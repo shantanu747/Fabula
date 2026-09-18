@@ -8,19 +8,19 @@ describe("GET /api/__bench/roundtrips", () => {
 
   it("is absent (404) without BENCH_INSTRUMENTATION=1", async () => {
     vi.stubEnv("BENCH_INSTRUMENTATION", "");
-    const response = await GET();
+    const response = await GET(new Request("http://localhost/api/__bench/roundtrips"));
     expect(response.status).toBe(404);
   });
 
   it("is absent (404) when BENCH_INSTRUMENTATION is set to something other than \"1\"", async () => {
     vi.stubEnv("BENCH_INSTRUMENTATION", "true");
-    const response = await GET();
+    const response = await GET(new Request("http://localhost/api/__bench/roundtrips"));
     expect(response.status).toBe(404);
   });
 
   it("returns counts and resets them when explicitly enabled", async () => {
     vi.stubEnv("BENCH_INSTRUMENTATION", "1");
-    const response = await GET();
+    const response = await GET(new Request("http://localhost/api/__bench/roundtrips"));
     expect(response.status).toBe(200);
     const body = (await response.json()) as Record<string, number>;
     expect(body).toHaveProperty("select");

@@ -77,7 +77,8 @@ export function createFakeAdmissionKv(): FakeAdmissionKv {
       const [identityCap, globalCap] = args.map(Number);
       const identityCount = counts.get(identityKey) ?? 0;
       const globalCount = counts.get(globalKey) ?? 0;
-      if (identityCount >= identityCap || globalCount >= globalCap) return 0;
+      if (identityCount >= identityCap) return 0;
+      if (globalCount >= globalCap) return 2;
       counts.set(identityKey, identityCount + 1);
       counts.set(globalKey, globalCount + 1);
       return 1;
@@ -157,12 +158,14 @@ export function createFakeBreakerKv(): FakeBreakerKv {
       if (entry.state === "open") {
         entry.openedAt = now;
         states.set(stateKeyName, entry);
-        return 1;
+        return 2;
       }
       entry.failures = (entry.failures ?? 0) + 1;
       if (entry.failures >= threshold) {
         entry.state = "open";
         entry.openedAt = now;
+        states.set(stateKeyName, entry);
+        return 2;
       }
       states.set(stateKeyName, entry);
       return 1;

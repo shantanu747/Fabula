@@ -65,3 +65,23 @@ async function sumCostWhere(db: AppDatabase, where: SQL | undefined): Promise<nu
     .where(where);
   return Number(row?.total ?? 0);
 }
+
+export interface RecentGenerationOutcome {
+  outcome: GenerationEventInput["outcome"];
+  ttftMs: number | null;
+}
+
+/**
+ * The raw rows `scripts/slo-report.mts` computes attainment from — the
+ * first query ever written against this table for the purpose ADR 0022
+ * built it for (docs/adr/0049). Deliberately just `outcome`/`ttftMs`, not
+ * `select *`: the report's own arithmetic (`slo.ts`) never needs anything
+ * else, and this table can carry cost/token figures no script needs to move
+ * off the database to compute an SLO number.
+ */
+export async function fetchRecentGenerationOutcomes(db: AppDatabase, since: Date): Promise<RecentGenerationOutcome[]> {
+  return db
+    .select({ outcome: generationEvents.outcome, ttftMs: generationEvents.ttftMs })
+    .from(generationEvents)
+    .where(gte(generationEvents.createdAt, since));
+}

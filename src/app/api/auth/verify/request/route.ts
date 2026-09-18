@@ -5,6 +5,7 @@ import { createVerificationToken } from "@/lib/auth/verificationTokens";
 import { getMailer } from "@/lib/email/registry";
 import { verificationEmail } from "@/lib/email/templates";
 import { log, LOG_EVENTS } from "@/lib/observability/logger";
+import { withRoute } from "@/lib/observability/withRoute";
 
 /**
  * Requests (or re-requests) a verification email for the signed-in Writer's
@@ -12,7 +13,7 @@ import { log, LOG_EVENTS } from "@/lib/observability/logger";
  * there's no enumeration question here: the caller already proved they
  * control this account by being signed into it (docs/adr/0046).
  */
-export async function POST(request: Request) {
+export const POST = withRoute("/api/auth/verify/request", async (request: Request) => {
   const originRejection = assertSameOrigin(request);
   if (originRejection) return originRejection;
 
@@ -35,4 +36,4 @@ export async function POST(request: Request) {
   }
 
   return Response.json({ ok: true });
-}
+});

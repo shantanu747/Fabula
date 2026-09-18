@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
 import { getDb } from "./client";
-import { insertGenerationEvent } from "./generationEvents";
+import { fetchRecentGenerationOutcomes, insertGenerationEvent } from "./generationEvents";
 import { generationEvents, users } from "./schema";
 import { createStory, createUser } from "@/test/factories";
 
@@ -119,5 +119,54 @@ describe("insertGenerationEvent", () => {
     expect(survived).toBeDefined();
     expect(survived.storyId).toBeNull();
     expect(survived.userId).toBeNull();
+  });
+});
+
+describe("fetchRecentGenerationOutcomes — scripts/slo-report.mts's own data source", () => {
+  it("returns only outcome/ttftMs, only for rows within the window", async () => {
+    const since = new Date(Date.now() - 60 * 60 * 1000);
+
+    await insertGenerationEvent(getDb(), {
+      requestId: "req-in-window",
+      providerId: "anthropic",
+      model: "claude-sonnet-5",
+      outcome: "success",
+      ttftMs: 420,
+    });
+
+    const rows = await fetchRecentGenerationOutcomes(getDb(), since);
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toEqual({ outcome: "success", ttftMs: 420 });
+  });
+
+  it("excludes a row older than the window", async () => {
+    await insertGenerationEvent(getDb(), {
+      requestId: "req-old",
+      providerId: "anthropic",
+      model: "claude-sonnet-5",
+      outcome: "success",
+      ttftMs: 100,
+    });
+
+    const future = new Date(Date.now() + 60 * 60 * 1000);
+    const rows = await fetchRecentGenerationOutcomes(getDb(), future);
+
+    expect(rows).toHaveLength(0);
+  });
+
+  it("reports a null ttftMs for a row that never reached one (a pre-first-chunk failure)", async () => {
+    const since = new Date(Date.now() - 60 * 60 * 1000);
+    await insertGenerationEvent(getDb(), {
+      requestId: "req-no-ttft",
+      providerId: "anthropic",
+      model: "unknown",
+      outcome: "provider_error",
+    });
+
+    const rows = await fetchRecentGenerationOutcomes(getDb(), since);
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toEqual({ outcome: "provider_error", ttftMs: null });
   });
 });

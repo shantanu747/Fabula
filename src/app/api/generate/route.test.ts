@@ -1,6 +1,11 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { SpanStatusCode, trace } from "@opentelemetry/api";
-import { BasicTracerProvider, InMemorySpanExporter, SimpleSpanProcessor } from "@opentelemetry/sdk-trace-base";
+import {
+  BasicTracerProvider,
+  InMemorySpanExporter,
+  SimpleSpanProcessor,
+  type ReadableSpan,
+} from "@opentelemetry/sdk-trace-base";
 import { estimateCostUsd } from "@/lib/providers/pricing";
 
 // The route imports `auth` at module scope even though the guest path never
@@ -815,7 +820,22 @@ describe("POST /api/generate — OTel spans", () => {
     exporter.reset();
   });
 
-  it("ends exactly one span on success, with usage/cost/ttft/total attributes", async () => {
+  // withRoute.ts wraps every route in its own "http.route" span now — every
+  // request produces that plus this route's own richer "fabula.generate"
+  // span (docs/adr/0049: the plan's own instruction was to nest, not
+  // flatten). These tests care specifically about fabula.generate's own
+  // lifecycle and attributes, so they pick it out by name rather than
+  // assuming it's the only or first span recorded, and the first test below
+  // separately proves the nesting itself (fabula.generate's parent is
+  // http.route's span id) so that guarantee has one direct assertion rather
+  // than being merely implied by every other test's span count.
+  function generateSpan(spans: readonly ReadableSpan[]): ReadableSpan {
+    const span = spans.find((s) => s.name === "fabula.generate");
+    if (!span) throw new Error("no fabula.generate span among finished spans");
+    return span;
+  }
+
+  it("ends exactly one span on success, with usage/cost/ttft/total attributes, nested under withRoute's http.route span", async () => {
     const usage = { inputTokens: 10, outputTokens: 5 };
     installFake({ chunks: ["Hello ", "world."], usage, model: "claude-sonnet-5" });
 
@@ -823,9 +843,11 @@ describe("POST /api/generate — OTel spans", () => {
     await readAllFrames(response);
 
     const spans = exporter.getFinishedSpans();
-    expect(spans).toHaveLength(1);
-    const span = spans[0];
-    expect(span.name).toBe("fabula.generate");
+    expect(spans).toHaveLength(2);
+    const routeSpan = spans.find((s) => s.name === "http.route");
+    const span = generateSpan(spans);
+    expect(routeSpan).toBeDefined();
+    expect(span.parentSpanContext?.spanId).toBe(routeSpan!.spanContext().spanId);
     expect(span.status.code).not.toBe(SpanStatusCode.ERROR);
     expect(span.attributes["fabula.outcome"]).toBe("success");
     expect(span.attributes["gen_ai.system"]).toBe(FAKE_ID);
@@ -845,7 +867,7 @@ describe("POST /api/generate — OTel spans", () => {
     const response = await POST(post(validBody()));
     await readAllFrames(response);
 
-    const [span] = exporter.getFinishedSpans();
+    const span = generateSpan(exporter.getFinishedSpans());
     expect(JSON.stringify(span.attributes)).not.toContain(secretProse);
     expect(JSON.stringify(span.attributes)).not.toContain("dragon");
   });
@@ -855,10 +877,9 @@ describe("POST /api/generate — OTel spans", () => {
 
     await POST(post(validBody()));
 
-    const spans = exporter.getFinishedSpans();
-    expect(spans).toHaveLength(1);
-    expect(spans[0].attributes["fabula.outcome"]).toBe("provider_error");
-    expect(spans[0].status.code).toBe(SpanStatusCode.ERROR);
+    const span = generateSpan(exporter.getFinishedSpans());
+    expect(span.attributes["fabula.outcome"]).toBe("provider_error");
+    expect(span.status.code).toBe(SpanStatusCode.ERROR);
   });
 
   it("ends exactly one span, with ERROR status, on a mid-stream provider error", async () => {
@@ -867,10 +888,9 @@ describe("POST /api/generate — OTel spans", () => {
     const response = await POST(post(validBody()));
     await readAllFrames(response);
 
-    const spans = exporter.getFinishedSpans();
-    expect(spans).toHaveLength(1);
-    expect(spans[0].attributes["fabula.outcome"]).toBe("provider_error");
-    expect(spans[0].status.code).toBe(SpanStatusCode.ERROR);
+    const span = generateSpan(exporter.getFinishedSpans());
+    expect(span.attributes["fabula.outcome"]).toBe("provider_error");
+    expect(span.status.code).toBe(SpanStatusCode.ERROR);
   });
 
   it("ends exactly one span on cancellation", async () => {
@@ -881,10 +901,9 @@ describe("POST /api/generate — OTel spans", () => {
     await reader.read();
     await reader.cancel("writer navigated away");
 
-    const spans = exporter.getFinishedSpans();
-    expect(spans).toHaveLength(1);
-    expect(spans[0].attributes["fabula.outcome"]).toBe("cancelled");
-    expect(spans[0].attributes["fabula.persisted"]).toBe(false);
+    const span = generateSpan(exporter.getFinishedSpans());
+    expect(span.attributes["fabula.outcome"]).toBe("cancelled");
+    expect(span.attributes["fabula.persisted"]).toBe(false);
   });
 
   it("still ends exactly one span when a mid-stream disconnect fires both request.signal and the stream's own cancel()", async () => {
@@ -907,9 +926,8 @@ describe("POST /api/generate — OTel spans", () => {
     await reader.cancel("writer navigated away");
 
     expect(returnCalled).toBe(true);
-    const spans = exporter.getFinishedSpans();
-    expect(spans).toHaveLength(1);
-    expect(spans[0].attributes["fabula.outcome"]).toBe("cancelled");
+    const span = generateSpan(exporter.getFinishedSpans());
+    expect(span.attributes["fabula.outcome"]).toBe("cancelled");
   });
 
   it("ends exactly one span, outcome cancelled, when the client disconnects before the first chunk", async () => {
@@ -921,11 +939,10 @@ describe("POST /api/generate — OTel spans", () => {
     controller.abort();
     await responsePromise;
 
-    const spans = exporter.getFinishedSpans();
-    expect(spans).toHaveLength(1);
-    expect(spans[0].attributes["fabula.outcome"]).toBe("cancelled");
+    const span = generateSpan(exporter.getFinishedSpans());
+    expect(span.attributes["fabula.outcome"]).toBe("cancelled");
     // Same span-status convention as any other cancellation (see the test above).
-    expect(spans[0].status.code).toBe(SpanStatusCode.ERROR);
+    expect(span.status.code).toBe(SpanStatusCode.ERROR);
   });
 
   it("ends exactly one span, with ERROR status, on a mid-stream idle stall", async () => {
@@ -938,10 +955,9 @@ describe("POST /api/generate — OTel spans", () => {
     await vi.runAllTimersAsync();
     await framesPromise;
 
-    const spans = exporter.getFinishedSpans();
-    expect(spans).toHaveLength(1);
-    expect(spans[0].attributes["fabula.outcome"]).toBe("provider_error");
-    expect(spans[0].status.code).toBe(SpanStatusCode.ERROR);
+    const span = generateSpan(exporter.getFinishedSpans());
+    expect(span.attributes["fabula.outcome"]).toBe("provider_error");
+    expect(span.status.code).toBe(SpanStatusCode.ERROR);
   });
 });
 
