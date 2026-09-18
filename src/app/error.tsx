@@ -1,6 +1,7 @@
 "use client"; // Error boundaries must be Client Components.
 
 import { useEffect } from "react";
+import { reportClientError } from "@/lib/observability/reportClientError";
 
 /**
  * Catches anything that throws while rendering a route segment. Without this
@@ -21,6 +22,7 @@ export default function Error({
 }) {
   useEffect(() => {
     console.error("[error boundary]", error);
+    reportClientError(error.digest, typeof window !== "undefined" ? window.location.pathname : "");
   }, [error]);
 
   return (

@@ -1,6 +1,7 @@
 "use client"; // Error boundaries must be Client Components.
 
 import { useEffect } from "react";
+import { reportClientError } from "@/lib/observability/reportClientError";
 
 /**
  * Scoped to /feed and /feed/[id] (this file covers both — see error.js docs:
@@ -20,6 +21,7 @@ export default function FeedError({
 }) {
   useEffect(() => {
     console.error("[feed error boundary]", error);
+    reportClientError(error.digest, typeof window !== "undefined" ? window.location.pathname : "");
   }, [error]);
 
   return (

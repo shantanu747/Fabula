@@ -1,6 +1,7 @@
 "use client"; // Error boundaries must be Client Components.
 
 import { useEffect } from "react";
+import { reportClientError } from "@/lib/observability/reportClientError";
 
 /**
  * Catches a throw in the root layout itself (`src/app/layout.tsx` calls
@@ -27,6 +28,7 @@ export default function GlobalError({
 }) {
   useEffect(() => {
     console.error("[global error boundary]", error);
+    reportClientError(error.digest, typeof window !== "undefined" ? window.location.pathname : "");
   }, [error]);
 
   return (

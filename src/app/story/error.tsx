@@ -1,6 +1,7 @@
 "use client"; // Error boundaries must be Client Components.
 
 import { useEffect } from "react";
+import { reportClientError } from "@/lib/observability/reportClientError";
 
 /**
  * `StoryContext` lives in `src/app/providers.tsx`, mounted by the root
@@ -26,6 +27,7 @@ export default function StoryError({
 }) {
   useEffect(() => {
     console.error("[story error boundary]", error);
+    reportClientError(error.digest, typeof window !== "undefined" ? window.location.pathname : "");
   }, [error]);
 
   return (
