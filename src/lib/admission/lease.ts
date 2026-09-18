@@ -1,4 +1,5 @@
 import { getKv, hasKv, withKvTimeout } from "@/lib/kv/client";
+import type { AdmissionReason } from "@/lib/observability/metrics";
 
 /**
  * Per-user and global in-flight generation caps.
@@ -46,13 +47,22 @@ function identityKey(identity: string): string {
 
 export type LeaseResult =
   | { acquired: true; release: () => Promise<void> }
-  | { acquired: false; retryAfterSeconds: number };
+  | { acquired: false; retryAfterSeconds: number; reason: AdmissionReason };
 
 /**
  * Atomically checks both caps and increments both counters only if neither is
  * exceeded — the same "one script, no interleaving" reasoning as the rate
  * limiter's Lua bucket. Two separate INCR/DECR pairs would let a caller slip
  * through between the identity check passing and the global check running.
+ *
+ * Returns which cap refused the request (0 = per-identity, 2 = global), not
+ * just a bare pass/fail — `fabula.admission.rejected`'s `reason` attribute
+ * (docs/adr/0049) needs to distinguish "this one Writer is at their own
+ * concurrency limit" from "the whole app is," and those are operationally
+ * different conditions (a raised per-identity cap is a UX tuning knob; a
+ * raised global cap is a real capacity decision). The identity check is
+ * tested first and wins on a tie (both exceeded at once): whichever the
+ * caller can act on themselves takes precedence over the one they can't.
  */
 const ACQUIRE_SCRIPT = `
 local identityKey = KEYS[1]
@@ -64,8 +74,11 @@ local ttl = tonumber(ARGV[3])
 local identityCount = tonumber(redis.call('GET', identityKey)) or 0
 local globalCount = tonumber(redis.call('GET', globalKey)) or 0
 
-if identityCount >= identityCap or globalCount >= globalCap then
+if identityCount >= identityCap then
   return 0
+end
+if globalCount >= globalCap then
+  return 2
 end
 
 redis.call('INCR', identityKey)
@@ -128,13 +141,13 @@ export async function acquireLease(identity: string): Promise<LeaseResult> {
     return { acquired: true, release: async () => {} };
   }
 
-  if (result === 0) {
+  if (result === 0 || result === 2) {
     // A concurrency refusal has no bucket to read a real wait time from —
     // unlike the rate limiter, nothing here refills on a schedule the client
     // can usefully wait out. A short, fixed suggestion is honest: "try again
     // in a few seconds," not a computed number that implies more precision
     // than a slot becoming free actually has.
-    return { acquired: false, retryAfterSeconds: 5 };
+    return { acquired: false, retryAfterSeconds: 5, reason: result === 0 ? "per_user" : "global" };
   }
 
   let released = false;

@@ -1,4 +1,6 @@
 import { getDb, hasDatabase } from "@/lib/db/client";
+import { log, LOG_EVENTS } from "@/lib/observability/logger";
+import { recordRatelimitRejected } from "@/lib/observability/metrics";
 import {
   clientIp,
   FEED_READ,
@@ -17,6 +19,7 @@ import {
   RESUME_USER,
   STORIES_READ,
   STORIES_WRITE,
+  TELEMETRY,
   UNIDENTIFIED_GUEST_IP,
   VERIFY_REQUEST,
   type RateLimitPolicy,
@@ -25,6 +28,14 @@ import { consumeToken, tooManyRequests } from "./store";
 
 /**
  * Route-level rate limiting. Returns a 429 to send back, or null to proceed.
+ *
+ * Logging and the `fabula.ratelimit.rejected` metric (docs/adr/0049) live
+ * here, in the one shared `apply()` every `guard*` function below funnels
+ * through, rather than at each of their call sites — before this, only
+ * `/api/generate`'s own caller remembered to log a rejection (the plan's
+ * own "why this exists" gap). Centralizing means every route this guard
+ * protects gets both for free, and a future guard* function can't
+ * reintroduce the same gap by forgetting to add its own call site.
  */
 
 async function apply(
@@ -38,7 +49,7 @@ async function apply(
   // Announced rather than silent, because a limiter that is quietly off is worse
   // than none at all.
   if (!hasDatabase()) {
-    console.warn(`[ratelimit] no DATABASE_URL — ${policy.scope} is not being limited`);
+    log.warn(LOG_EVENTS.RATELIMIT_ERROR, { policy: policy.scope, reason: "no_database" });
     return null;
   }
 
@@ -46,7 +57,7 @@ async function apply(
   try {
     result = await consumeToken(getDb(), policy, identity);
   } catch (err) {
-    console.error(`[ratelimit] ${policy.scope} check failed:`, err);
+    log.error(LOG_EVENTS.RATELIMIT_ERROR, { policy: policy.scope, reason: "check_failed", err });
     // Fail open only where that's explicitly requested (health) — see guardHealth.
     // Everywhere else, fail closed: the limiter's whole job is to bound what an
     // unauthenticated caller can spend on provider tokens, and failing open would
@@ -59,6 +70,8 @@ async function apply(
   }
 
   if (result.allowed) return null;
+  log.warn(LOG_EVENTS.RATELIMIT_REJECTED, { policy: policy.scope });
+  recordRatelimitRejected(policy.scope);
   return tooManyRequests(result, message);
 }
 
@@ -179,4 +192,11 @@ export function guardHealth(request: Request): Promise<Response | null> {
   return apply(HEALTH, clientIp(request), "Too many health checks from this address.", {
     failOpen: true,
   });
+}
+
+/** Fails closed like every route above except guardHealth — a telemetry
+ *  spike during a database blip is exactly the kind of unbounded write this
+ *  guard exists to bound, not a condition worth relaxing for. */
+export function guardTelemetry(request: Request): Promise<Response | null> {
+  return apply(TELEMETRY, clientIp(request), "Too many telemetry reports from this address.");
 }

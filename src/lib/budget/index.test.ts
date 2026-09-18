@@ -106,12 +106,18 @@ describe("checkBudget — global cap fails closed", () => {
   });
 
   it("allows the request, logged loudly, when both Redis and the Postgres fallback fail", async () => {
-    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    // logger.ts routes every level through console.log, carrying the level
+    // as a JSON field rather than a distinct console method — see its own
+    // doc comment.
+    const logged = vi.spyOn(console, "log").mockImplementation(() => {});
 
     const result = await checkBudget(throwingDb(), { type: "user", userId: "u1" });
 
     expect(result.allowed).toBe(true);
-    expect(error).toHaveBeenCalled();
+    const lines = logged.mock.calls.map(([line]) => JSON.parse(line as string));
+    expect(lines).toContainEqual(
+      expect.objectContaining({ level: "error", event: "budget.error", reason: "global_cap_check_failed" })
+    );
   });
 
   it("checks the global cap before the identity cap", async () => {
@@ -196,11 +202,14 @@ describe("recordSpend", () => {
 
   it("counts an unpriced-model generation at the conservative default, not free", async () => {
     __setKvForTests(createFakeBudgetKv());
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const logged = vi.spyOn(console, "log").mockImplementation(() => {});
 
     await recordSpend({ type: "guest" }, undefined);
 
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining("conservative default"));
+    const lines = logged.mock.calls.map(([line]) => JSON.parse(line as string));
+    expect(lines).toContainEqual(
+      expect.objectContaining({ level: "warn", event: "budget.error", reason: "unpriced_model_fallback" })
+    );
   });
 
   it("swallows a Redis failure rather than throwing", async () => {

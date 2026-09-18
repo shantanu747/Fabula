@@ -71,10 +71,17 @@ describe("with no database configured", () => {
     // the app at all. Announced rather than silent: a limiter that is off
     // without anyone knowing is worse than no limiter.
     delete process.env.DATABASE_URL;
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    // logger.ts routes every level through console.log, carrying the level as
+    // a JSON field rather than a distinct console method (see its own doc
+    // comment) — spying on console.log and parsing is what actually observes
+    // a structured log call now, not console.warn.
+    const logged = vi.spyOn(console, "log").mockImplementation(() => {});
 
     await expect(guard()).resolves.toBeNull();
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining("not being limited"));
+    const lines = logged.mock.calls.map(([line]) => JSON.parse(line as string));
+    expect(lines).toContainEqual(
+      expect.objectContaining({ event: "ratelimit.error", reason: "no_database" })
+    );
   });
 });
 
@@ -92,7 +99,7 @@ describe("when the bucket query fails", () => {
     // the database unhappy, which inverts the point of the control. The cost is
     // real and accepted: an outage stops generation for guests.
     installFailingDb();
-    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(console, "log").mockImplementation(() => {});
 
     const response = await guardGenerate(request(), undefined);
 
@@ -104,7 +111,7 @@ describe("when the bucket query fails", () => {
     // This denial is the server's fault, and the copy should not tell someone
     // to slow down when they did nothing wrong.
     installFailingDb();
-    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(console, "log").mockImplementation(() => {});
 
     const response = await guardRegister(request());
 
@@ -115,7 +122,7 @@ describe("when the bucket query fails", () => {
 
   it("still lets a health check through — failing closed here would hide the outage behind a generic 429", async () => {
     installFailingDb();
-    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(console, "log").mockImplementation(() => {});
 
     await expect(guardHealth(request())).resolves.toBeNull();
   });
@@ -131,7 +138,7 @@ describe("when the bucket query fails", () => {
     ["a password reset completion", () => guardPasswordResetComplete(request())],
   ])("denies %s rather than letting it through", async (_label, guard) => {
     installFailingDb();
-    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(console, "log").mockImplementation(() => {});
 
     const response = await guard();
 

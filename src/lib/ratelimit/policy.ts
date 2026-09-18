@@ -210,6 +210,22 @@ export const RESUME_USER: RateLimitPolicy = {
 };
 
 /**
+ * `/api/telemetry` is unauthenticated and public by necessity (a page's
+ * client bundle has no session to key by before one exists) — an IP-keyed
+ * bucket is the only identity available, same posture as REGISTER/HEALTH.
+ * Generous relative to those: one real page load can legitimately post
+ * several web-vitals events (LCP, INP, CLS, TTFB) plus, occasionally, one
+ * error report, and a Writer opening several tabs is normal, not abuse.
+ * Still bounded — this endpoint writes into the metrics/logging pipeline,
+ * and unbounded volume there is a real cost (docs/adr/0049).
+ */
+export const TELEMETRY: RateLimitPolicy = {
+  scope: "telemetry",
+  capacity: 60,
+  refillPerSecond: 2,
+};
+
+/**
  * Number of trusted hops between the caller and this app that append to
  * `x-forwarded-for` on the way in. Vercel is one hop, appending exactly once;
  * a self-hosted deployment with its own ingress in front of Vercel (or another
