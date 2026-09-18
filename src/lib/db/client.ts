@@ -3,6 +3,7 @@ import { drizzle } from "drizzle-orm/neon-http";
 import * as schema from "./schema";
 import type { AppDatabase } from "./types";
 import { getRoundtripCounter } from "../../../bench/roundtrips";
+import { wrapWithTracing } from "./tracing";
 
 // Constructed lazily, not at module scope — the Neon driver throws immediately if
 // DATABASE_URL isn't set, which would otherwise break `next build`/`next dev` startup
@@ -27,15 +28,23 @@ function createDb() {
 export function getDb(): AppDatabase {
   if (!db) {
     const raw = createDb();
-    // bench/harness.ts (docs/adr/0034) sets this on the app process it spawns,
-    // never in a normal build or deployment — this is the only place that
-    // branch can be taken. Wrapping here, once, at construction, is what lets
-    // the counter see every call through the one shared `db` singleton,
-    // regardless of which route makes it. Kept out of createDb() itself:
-    // getAuthAdapterDb() below also calls createDb() and needs the full
-    // NeonHttpDatabase type (transaction included) for the Auth.js adapter,
-    // which the wrapped/narrowed AppDatabase type can't provide.
-    db = process.env.BENCH_INSTRUMENTATION === "1" ? getRoundtripCounter().wrap(raw) : raw;
+    // bench/harness.ts (docs/adr/0034) sets BENCH_INSTRUMENTATION on the app
+    // process it spawns, never in a normal build or deployment — this is the
+    // only place that branch can be taken. Wrapping here, once, at
+    // construction, is what lets both wrappers see every call through the
+    // one shared `db` singleton, regardless of which route makes it. Kept
+    // out of createDb() itself: getAuthAdapterDb() below also calls
+    // createDb() and needs the full NeonHttpDatabase type (transaction
+    // included) for the Auth.js adapter, which the wrapped/narrowed
+    // AppDatabase type can't provide.
+    //
+    // Tracing wraps the (possibly bench-counted) result, not the other way
+    // around — docs/adr/0049 and db/tracing.ts's own doc comment. Both
+    // Proxies forward every counted call through unchanged, so nesting order
+    // has no effect on either wrapper's own observations; this order is
+    // simply "always trace, only sometimes bench-count."
+    const counted = process.env.BENCH_INSTRUMENTATION === "1" ? getRoundtripCounter().wrap(raw) : raw;
+    db = wrapWithTracing(counted);
   }
   return db;
 }

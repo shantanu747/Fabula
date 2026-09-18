@@ -72,6 +72,50 @@ describe("log — trace correlation", () => {
   });
 });
 
+describe("log — sampling (log.info only; never on warn/error)", () => {
+  it("emits every call when sampleRate is omitted (the default)", () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    for (let i = 0; i < 20; i++) log.info(LOG_EVENTS.GENERATE_FIRST_CHUNK, { requestId: "r" });
+
+    expect(logSpy).toHaveBeenCalledTimes(20);
+  });
+
+  it("emits every call at sampleRate 1, and none at sampleRate 0", () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    log.info(LOG_EVENTS.GENERATE_FIRST_CHUNK, { requestId: "r" }, { sampleRate: 1 });
+    log.info(LOG_EVENTS.GENERATE_FIRST_CHUNK, { requestId: "r" }, { sampleRate: 0 });
+
+    expect(logSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("drops roughly the configured fraction over many calls", () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    vi.spyOn(Math, "random").mockReturnValue(0.5);
+
+    // random() is pinned at 0.5: a rate above 0.5 always emits, at or below never does.
+    log.info(LOG_EVENTS.GENERATE_FIRST_CHUNK, { requestId: "r" }, { sampleRate: 0.6 });
+    log.info(LOG_EVENTS.GENERATE_FIRST_CHUNK, { requestId: "r" }, { sampleRate: 0.5 });
+    log.info(LOG_EVENTS.GENERATE_FIRST_CHUNK, { requestId: "r" }, { sampleRate: 0.4 });
+
+    expect(logSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("log.warn and log.error accept no sampleRate — errors are never sampled, structurally", () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    // @ts-expect-error — sampleRate does not exist on warn/error's signature.
+    log.warn(LOG_EVENTS.GENERATE_FAILED, { requestId: "r" }, { sampleRate: 0 });
+    // @ts-expect-error — same for error.
+    log.error(LOG_EVENTS.GENERATE_FAILED, { requestId: "r" }, { sampleRate: 0 });
+
+    // The extra argument is simply ignored at runtime (not a TS-only guarantee) —
+    // both calls still emit in full.
+    expect(logSpy).toHaveBeenCalledTimes(2);
+  });
+});
+
 describe("log — output shape", () => {
   it("emits exactly one line of valid JSON per call", () => {
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});

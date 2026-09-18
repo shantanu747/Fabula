@@ -19,6 +19,7 @@ export default defineProject({
   test: {
     name: "unit",
     environment: "node",
+    setupFiles: ["./src/test/setup-otel-context.ts"],
     include: ["src/**/*.test.{ts,tsx}"],
     exclude: [
       // Owned by the `db` and `perf` projects — both need a live Postgres.
