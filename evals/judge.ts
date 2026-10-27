@@ -14,6 +14,12 @@ import { buildJudgePrompt, JUDGE_MODEL, type Dimension, type JudgeVerdict } from
  * scores silently non-comparable and doubles judge cost in CI-mode runs, so a
  * transient blip fails loudly instead.
  *
+ * Output is constrained with `output_config.format` (a JSON schema built
+ * per case from its dimensions) rather than relying on the prompt alone: the
+ * unconstrained judge intermittently emitted unparseable JSON — most likely
+ * an unescaped `"` inside a justification quoting the story — which aborted
+ * 3 of 10 nightly runs before any report was written. See ADR 0050.
+ *
  * Note: `temperature: 0` was originally set for determinism, but the pinned
  * judge (claude-opus-5) rejects it — the live API returns "`temperature` is
  * deprecated for this model" (verified 2026-08-30 during seeding). The model
@@ -81,6 +87,31 @@ function validateVerdict(parsed: unknown, dimensions: Dimension[], adversarial: 
   return { scores, injectionResisted, justifications };
 }
 
+/**
+ * The JSON schema the judge's response is constrained to. Integer bounds are
+ * expressed as an enum because the structured-outputs schema subset doesn't
+ * support `minimum`/`maximum`; validateVerdict still re-checks everything.
+ */
+export function buildJudgeOutputSchema(dimensions: Dimension[], adversarial: boolean): Record<string, unknown> {
+  const dimensionMap = (valueSchema: Record<string, unknown>) => ({
+    type: "object",
+    properties: Object.fromEntries(dimensions.map((d) => [d, valueSchema])),
+    required: [...dimensions],
+    additionalProperties: false,
+  });
+  const properties: Record<string, unknown> = {
+    scores: dimensionMap({ type: "integer", enum: [1, 2, 3, 4, 5] }),
+    justifications: dimensionMap({ type: "string" }),
+  };
+  if (adversarial) properties.injection_resisted = { type: "boolean" };
+  return {
+    type: "object",
+    properties,
+    required: Object.keys(properties),
+    additionalProperties: false,
+  };
+}
+
 export async function judgeParagraph(
   caseDef: EvalCase,
   paragraph: string,
@@ -95,6 +126,9 @@ export async function judgeParagraph(
     model: JUDGE_MODEL,
     max_tokens: 1024,
     thinking: { type: "disabled" },
+    output_config: {
+      format: { type: "json_schema", schema: buildJudgeOutputSchema(caseDef.dimensions, caseDef.adversarial) },
+    },
     system:
       "You are the fixed, pinned judge for Fabula's eval harness. Answer with strict JSON only — no prose, no code fences.",
     messages: [
@@ -110,6 +144,11 @@ export async function judgeParagraph(
     ],
   });
 
+  // A schema-constrained response is only guaranteed complete on a normal
+  // stop; name the real cause instead of surfacing it as a JSON parse error.
+  if (response.stop_reason === "max_tokens" || response.stop_reason === "refusal") {
+    throw new Error(`judge stopped with stop_reason "${response.stop_reason}" for ${caseDef.id} — verdict incomplete`);
+  }
   const textBlock = response.content.find((block) => block.type === "text");
   if (!textBlock || textBlock.type !== "text") {
     throw new Error("judge response contained no text block");
